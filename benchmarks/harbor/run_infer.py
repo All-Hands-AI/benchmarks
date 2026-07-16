@@ -154,10 +154,34 @@ def _split_json_values(raw: str | None) -> list[str]:
         return []
     data = json.loads(raw)
     if isinstance(data, dict):
-        return [f"{key}={value}" for key, value in data.items()]
+        return [
+            f"{key}={value if isinstance(value, str) else json.dumps(value, separators=(',', ':'))}"
+            for key, value in data.items()
+        ]
     if isinstance(data, list) and all(isinstance(item, str) for item in data):
         return data
     raise ValueError("Expected a JSON object or list of KEY=VALUE strings")
+
+
+def _llm_agent_env(llm: LLM, harbor_agent: str) -> list[str]:
+    """Build credential env flags for the selected Harbor-compatible agent.
+
+    The OpenHands SDK agent consumes the generic ``LLM_*`` variables. Pier's
+    mini-SWE agent resolves ``litellm_proxy/*`` through LiteLLM, which consumes
+    the OpenAI-compatible aliases instead. Both names carry the same proxy
+    credential and endpoint.
+    """
+    values: list[str] = []
+    if llm.api_key:
+        api_key = _secret_value(llm.api_key)
+        values.append(f"LLM_API_KEY={api_key}")
+        if harbor_agent == "mini-swe-agent":
+            values.append(f"OPENAI_API_KEY={api_key}")
+    if llm.base_url:
+        values.append(f"LLM_BASE_URL={llm.base_url}")
+        if harbor_agent == "mini-swe-agent":
+            values.append(f"OPENAI_BASE_URL={llm.base_url}")
+    return values
 
 
 def run_harbor(
@@ -186,10 +210,8 @@ def run_harbor(
         str(args.num_workers),
     ]
 
-    if llm.api_key:
-        cmd.extend(["--ae", f"LLM_API_KEY={_secret_value(llm.api_key)}"])
-    if llm.base_url:
-        cmd.extend(["--ae", f"LLM_BASE_URL={llm.base_url}"])
+    for env_value in _llm_agent_env(llm, args.harbor_agent):
+        cmd.extend(["--ae", env_value])
     for env_value in _parse_key_value(
         [*args.agent_env, *_split_json_values(args.agent_env_json)]
     ):
