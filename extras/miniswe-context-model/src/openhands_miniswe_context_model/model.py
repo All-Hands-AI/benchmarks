@@ -4,7 +4,10 @@ from __future__ import annotations
 
 from typing import Any
 
-from minisweagent.models.litellm_model import LitellmModel, LitellmModelConfig
+from minisweagent.models.litellm_model import (  # pyright: ignore[reportMissingImports]
+    LitellmModel,
+    LitellmModelConfig,
+)
 from pydantic import Field
 
 from openhands_miniswe_context_model.history import bound_message_history
