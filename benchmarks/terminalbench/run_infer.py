@@ -80,7 +80,7 @@ def run_harbor_evaluation(
         agent_kwargs = {"skill_paths": ["/harbor/skills"]}
         skills = [
             "https://github.com/perplexityai/api-platform-developers/tree/"
-            "906630d8b9787b29afd693699fe34c1b86adf2de/skills/pplx-cli"
+            "main/skills/pplx-cli"
         ]
 
     return _run_harbor_evaluation(
