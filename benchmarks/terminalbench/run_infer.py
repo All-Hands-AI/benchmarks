@@ -64,12 +64,31 @@ def run_harbor_evaluation(
     Returns:
         Path to the harbor output directory.
     """
+    pplx_enabled = os.environ.get("TERMINALBENCH_PPLX_ENABLED") == "true"
+    agent_name = HARBOR_DEFAULTS["agent_name"]
+    agent_env: dict[str, str] | None = None
+    agent_kwargs: dict[str, object] | None = None
+    skills: list[str] | None = None
+    if pplx_enabled:
+        api_key = os.environ.get("PERPLEXITY_API_KEY")
+        if not api_key:
+            raise RuntimeError(
+                "PERPLEXITY_API_KEY is required when TERMINALBENCH_PPLX_ENABLED=true"
+            )
+        agent_name = "benchmarks.terminalbench.pplx_agent:PplxOpenHandsSDK"
+        agent_env = {"PERPLEXITY_API_KEY": api_key}
+        agent_kwargs = {"skill_paths": ["/harbor/skills"]}
+        skills = [
+            "https://github.com/perplexityai/api-platform-developers/tree/"
+            "906630d8b9787b29afd693699fe34c1b86adf2de/skills/pplx-cli"
+        ]
+
     return _run_harbor_evaluation(
         llm=llm,
         dataset=dataset,
         output_dir=output_dir,
         harbor_executable=HARBOR_DEFAULTS["harbor_executable"],
-        agent_name=HARBOR_DEFAULTS["agent_name"],
+        agent_name=agent_name,
         num_workers=num_workers,
         task_ids=task_ids,
         n_limit=n_limit,
@@ -77,6 +96,9 @@ def run_harbor_evaluation(
             HARBOR_DEFAULTS["harbor_executable"]
         ),
         credential_mode=HarborCredentialMode.AGENT_ENV_FLAGS,
+        agent_env=agent_env,
+        agent_kwargs=agent_kwargs,
+        skills=skills,
         subprocess_run=subprocess.run,
     )
 

@@ -99,6 +99,9 @@ def run_harbor_evaluation(
     task_filter_flag: str = "--task-name",
     normalize_task_id: Callable[[str], str] | None = None,
     credential_mode: HarborCredentialMode = HarborCredentialMode.AGENT_ENV_FLAGS,
+    agent_env: dict[str, str] | None = None,
+    agent_kwargs: dict[str, Any] | None = None,
+    skills: list[str] | None = None,
     retry_legacy_task_flag: bool = False,
     subprocess_run: Callable[..., Any] = subprocess.run,
 ) -> Path:
@@ -138,6 +141,13 @@ def run_harbor_evaluation(
         if llm.base_url:
             env["LLM_BASE_URL"] = llm.base_url
 
+    for key, value in (agent_env or {}).items():
+        cmd.extend(["--ae", f"{key}={value}"])
+    for key, value in (agent_kwargs or {}).items():
+        cmd.extend(["--agent-kwarg", f"{key}={json.dumps(value)}"])
+    for skill in skills or []:
+        cmd.extend(["--skill", skill])
+
     if task_ids:
         normalize = normalize_task_id or (lambda task_id: task_id)
         for task_id in task_ids:
@@ -147,7 +157,10 @@ def run_harbor_evaluation(
         cmd.extend(["--n-tasks", str(n_limit)])
 
     safe_cmd = [
-        "***" if prev == "--ae" and part.startswith("LLM_") else part
+        "***"
+        if prev == "--ae"
+        and (part.startswith("LLM_") or part.startswith("PERPLEXITY_"))
+        else part
         for prev, part in zip([""] + cmd, cmd)
     ]
     logger.info(f"Running harbor command: {' '.join(safe_cmd)}")
