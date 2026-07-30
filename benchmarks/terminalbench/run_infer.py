@@ -75,7 +75,7 @@ def run_harbor_evaluation(
             raise RuntimeError(
                 "PERPLEXITY_API_KEY is required when TERMINALBENCH_PPLX_ENABLED=true"
             )
-        agent_name = "benchmarks.terminalbench.pplx_agent:PplxOpenHandsSDK"
+        agent_name = "harbor_agents.pplx_openhands_sdk:PplxOpenHandsSDK"
         agent_env = {"PERPLEXITY_API_KEY": api_key}
         agent_kwargs = {"skill_paths": ["/harbor/skills"]}
         skills = [
