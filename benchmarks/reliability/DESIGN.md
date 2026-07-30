@@ -1,6 +1,7 @@
 # Fault-injection reliability benchmark design
 
-Status: design-only scaffold pending maintainer scope confirmation.
+Status: implemented benchmark core; infrastructure-specific adapters supply the
+real runtime operations.
 
 ## Goals
 
@@ -16,38 +17,8 @@ language-model output, or treat a fresh retry as successful resume.
 
 ## Scenario schema
 
-Every scenario is a versioned document with:
-
-```yaml
-schema_version: 1
-scenario_id: swebench.restart.after_action.v1
-task:
-  benchmark: swebench
-  instance_id: example__project-123
-agent:
-  config: default
-seed: 81321
-faults:
-  - fault_id: restart-1
-    kind: sandbox_restart
-    trigger:
-      event:
-        event_type: ActionEvent
-        ordinal: 1
-    parameters:
-      restart_mode: hard
-    release:
-      kind: immediate
-oracles:
-  completion:
-    kind: benchmark_native
-  effects:
-    kind: ledger
-    ledger_path: /workspace/reliability/effects.jsonl
-budgets:
-  run_timeout_seconds: 1800
-  recovery_timeout_seconds: 300
-```
+Every scenario is a versioned JSON document. A complete example lives at
+`benchmarks/reliability/scenarios/example.json`.
 
 Required identity fields are `schema_version`, `scenario_id`, task identity,
 agent/config identity, and seed. A run manifest records resolved defaults,
@@ -77,7 +48,7 @@ runtime and conversation identities, injector result, and release result.
 
 ## Fault interface
 
-The scaffold defines a typed `FaultInjector` protocol:
+The implementation defines a typed `FaultInjector` protocol:
 
 - `arm(context, fault) -> FaultHandle`
 - `inject(context, fault, handle) -> FaultReceipt`
@@ -298,18 +269,15 @@ codes.
 - one live local agent-server smoke scenario
 - one real SWE-bench subset scenario only after the local smoke path is stable
 
-The current test file is intentionally skipped and contains no feature logic.
+The focused tests exercise schema rejection, deterministic schedules, SDK
+callback ordering, effect evidence, all four injectors, every grader, and both
+scorecard formats.
 
 ## Phasing
 
-Phase 1 is only this architecture/design and typed scaffold.
-
-After maintainer buy-in, a proposed smallest Phase 2 is:
-
-1. one local deterministic irreversible-effect tool;
-2. one hard agent-server restart or lost-result fault at a verified boundary;
-3. one small SWE-bench subset;
-4. the three inspectable graders and Markdown/JSON scorecard.
-
-Network partitions, provider-session rebound, and multiple concurrent unmatched
-actions remain later milestones unless maintainers explicitly prioritize them.
+The generic harness, evidence model, graders, reporting, and SDK event callback
+are implemented in this package. Infrastructure adapters should land
+incrementally because a Docker restart, remote-runtime replacement, and network
+partition require different privileges and recovery operations. Each adapter
+must identify its concrete boundary in receipts and add a live smoke test before
+being used for published scores.

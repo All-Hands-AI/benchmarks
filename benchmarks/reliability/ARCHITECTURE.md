@@ -1,7 +1,7 @@
 # Fault-injection reliability benchmark architecture
 
-Status: pre-implementation RFC scaffold. This document identifies verified
-integration seams only; it does not mark the design as accepted or ready.
+Status: verified architecture for the implemented benchmark core and its
+infrastructure adapter boundary.
 
 ## Evidence base
 
@@ -14,7 +14,7 @@ The architecture was checked against:
 - `OpenHands/OpenHands#14260` and `OpenHands/OpenHands#13578`
 
 The source was first inspected through the connected GitHub app at the pinned
-revisions, then checked against local clones before this scaffold was published.
+revisions, then checked against local clones before this implementation was published.
 
 ## Existing execution path
 
@@ -216,13 +216,12 @@ one other benchmark needs them. Only then should generic components move to
 `benchmarks/utils`, consistent with the repository's contribution guidance.
 
 SDK changes should be limited to narrow, reusable injection hooks or observable
-receipts that cannot be implemented at the benchmark layer. Their exact shape
-waits for maintainer direction.
+receipts that cannot be implemented at the benchmark layer. The current
+`build_reliability_event_callback` composes with SDK callbacks without changing
+the vendored SDK.
 
-## Unresolved before feature implementation
+## Adapter-specific follow-up
 
-- Whether maintainers want the package in `benchmarks` or the live fault driver
-  beside the SDK's event-sourcing benchmarks.
 - The exact remote client seam for lost tool responses and agent-server network
   partitions.
 - Whether cold-start recovery should reconcile all unmatched parallel actions
