@@ -187,6 +187,18 @@ class TestRunHarborEvaluationCredentialModes:
         assert env["LLM_API_KEY"] == "my-key"
         assert env["LLM_BASE_URL"] == "https://proxy.example.com"
 
+    def test_agent_allowed_hosts_adds_harbor_flags(self, tmp_path: Path) -> None:
+        run = _fake_run()
+        run_harbor_evaluation(
+            llm=LLM(model="test/model"),
+            dataset="my-dataset",
+            output_dir=str(tmp_path),
+            agent_allowed_hosts=["api.perplexity.ai"],
+            subprocess_run=run,
+        )
+        cmd = run.captured["cmds"][0]
+        assert cmd[cmd.index("--allow-agent-host") + 1] == "api.perplexity.ai"
+
 
 class TestRunHarborEvaluationTaskFiltering:
     """Tests for task_ids, n_limit, and fallback-retry in run_harbor_evaluation."""

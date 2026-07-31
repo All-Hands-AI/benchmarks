@@ -68,6 +68,7 @@ def run_harbor_evaluation(
     agent_name = HARBOR_DEFAULTS["agent_name"]
     agent_env: dict[str, str] | None = None
     agent_kwargs: dict[str, object] | None = None
+    agent_allowed_hosts: list[str] | None = None
     skills: list[str] | None = None
     if pplx_enabled:
         api_key = os.environ.get("PERPLEXITY_API_KEY")
@@ -78,6 +79,10 @@ def run_harbor_evaluation(
         agent_name = "harbor_agents.pplx_openhands_sdk:PplxOpenHandsSDK"
         agent_env = {"PERPLEXITY_API_KEY": api_key}
         agent_kwargs = {"skill_paths": ["/harbor/skills"]}
+        # Harbor enforces egress per task. The DNS resolver sidecar enables
+        # resolution of allowlisted hosts, while this explicit grant permits
+        # the CLI's API request during the agent phase.
+        agent_allowed_hosts = ["api.perplexity.ai"]
         skills = [
             "https://github.com/perplexityai/api-platform-developers/tree/"
             "main/skills/pplx-cli",
@@ -104,6 +109,7 @@ def run_harbor_evaluation(
         credential_mode=HarborCredentialMode.AGENT_ENV_FLAGS,
         agent_env=agent_env,
         agent_kwargs=agent_kwargs,
+        agent_allowed_hosts=agent_allowed_hosts,
         skills=skills,
         subprocess_run=subprocess.run,
     )

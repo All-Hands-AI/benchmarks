@@ -101,6 +101,7 @@ def run_harbor_evaluation(
     credential_mode: HarborCredentialMode = HarborCredentialMode.AGENT_ENV_FLAGS,
     agent_env: dict[str, str] | None = None,
     agent_kwargs: dict[str, Any] | None = None,
+    agent_allowed_hosts: list[str] | None = None,
     skills: list[str] | None = None,
     retry_legacy_task_flag: bool = False,
     subprocess_run: Callable[..., Any] = subprocess.run,
@@ -145,6 +146,8 @@ def run_harbor_evaluation(
         cmd.extend(["--ae", f"{key}={value}"])
     for key, value in (agent_kwargs or {}).items():
         cmd.extend(["--agent-kwarg", f"{key}={json.dumps(value)}"])
+    for host in agent_allowed_hosts or []:
+        cmd.extend(["--allow-agent-host", host])
     for skill in skills or []:
         cmd.extend(["--skill", skill])
 
