@@ -199,6 +199,20 @@ class TestRunHarborEvaluationCredentialModes:
         cmd = run.captured["cmds"][0]
         assert cmd[cmd.index("--allow-agent-host") + 1] == "api.perplexity.ai"
 
+    def test_agent_setup_timeout_multiplier_adds_harbor_flag(
+        self, tmp_path: Path
+    ) -> None:
+        run = _fake_run()
+        run_harbor_evaluation(
+            llm=LLM(model="test/model"),
+            dataset="my-dataset",
+            output_dir=str(tmp_path),
+            agent_setup_timeout_multiplier=2.0,
+            subprocess_run=run,
+        )
+        cmd = run.captured["cmds"][0]
+        assert cmd[cmd.index("--agent-setup-timeout-multiplier") + 1] == "2.0"
+
 
 class TestRunHarborEvaluationTaskFiltering:
     """Tests for task_ids, n_limit, and fallback-retry in run_harbor_evaluation."""

@@ -103,6 +103,7 @@ def run_harbor_evaluation(
     agent_kwargs: dict[str, Any] | None = None,
     agent_allowed_hosts: list[str] | None = None,
     skills: list[str] | None = None,
+    agent_setup_timeout_multiplier: float | None = None,
     retry_legacy_task_flag: bool = False,
     subprocess_run: Callable[..., Any] = subprocess.run,
 ) -> Path:
@@ -150,6 +151,13 @@ def run_harbor_evaluation(
         cmd.extend(["--allow-agent-host", host])
     for skill in skills or []:
         cmd.extend(["--skill", skill])
+    if agent_setup_timeout_multiplier is not None:
+        cmd.extend(
+            [
+                "--agent-setup-timeout-multiplier",
+                str(agent_setup_timeout_multiplier),
+            ]
+        )
 
     if task_ids:
         normalize = normalize_task_id or (lambda task_id: task_id)

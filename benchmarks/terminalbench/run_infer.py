@@ -70,6 +70,7 @@ def run_harbor_evaluation(
     agent_kwargs: dict[str, object] | None = None
     agent_allowed_hosts: list[str] | None = None
     skills: list[str] | None = None
+    agent_setup_timeout_multiplier: float | None = None
     if pplx_enabled:
         api_key = os.environ.get("PERPLEXITY_API_KEY")
         if not api_key:
@@ -93,6 +94,15 @@ def run_harbor_evaluation(
                 / "pplx-required"
             ),
         ]
+        raw_setup_multiplier = os.environ.get(
+            "TERMINALBENCH_PPLX_AGENT_SETUP_TIMEOUT_MULTIPLIER"
+        )
+        if raw_setup_multiplier:
+            agent_setup_timeout_multiplier = float(raw_setup_multiplier)
+            if agent_setup_timeout_multiplier <= 0:
+                raise ValueError(
+                    "TERMINALBENCH_PPLX_AGENT_SETUP_TIMEOUT_MULTIPLIER must be positive"
+                )
 
     return _run_harbor_evaluation(
         llm=llm,
@@ -111,6 +121,7 @@ def run_harbor_evaluation(
         agent_kwargs=agent_kwargs,
         agent_allowed_hosts=agent_allowed_hosts,
         skills=skills,
+        agent_setup_timeout_multiplier=agent_setup_timeout_multiplier,
         subprocess_run=subprocess.run,
     )
 
