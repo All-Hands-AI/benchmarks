@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+from pathlib import Path
 from typing import Any, override
 
 from harbor.agents.installed.openhands_sdk import OpenHandsSDK
@@ -16,7 +17,22 @@ class PplxOpenHandsSDK(OpenHandsSDK):
 
     @override
     async def install(self, environment: BaseEnvironment) -> None:
-        await super().install(environment)
+        # A read-only evaluator-built venv is bind-mounted for batch evals.
+        # Harbor's stock installer unnecessarily chowns that mount after its
+        # existence probe, so install just the runner when it is available.
+        mounted_runtime = await environment.exec(
+            command="/opt/openhands-sdk-venv/bin/python -c 'import openhands.sdk'",
+        )
+        if mounted_runtime.return_code == 0:
+            import harbor.agents.installed.openhands_sdk as adapter
+
+            runner_path = Path(adapter.__file__).parent / "openhands_sdk_runner.py"
+            local_copy = self.logs_dir / "run_agent.py"
+            local_copy.write_text(runner_path.read_text())
+            await environment.upload_file(source_path=local_copy, target_path="/installed-agent/run_agent.py")
+            await environment.exec(command="chmod +x /installed-agent/run_agent.py", user="root")
+        else:
+            await super().install(environment)
         await self.exec_as_root(
             environment,
             command=(
