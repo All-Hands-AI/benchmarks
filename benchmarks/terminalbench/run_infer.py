@@ -13,6 +13,8 @@ import json
 import os
 import subprocess
 import sys
+import tempfile
+import threading
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -21,6 +23,7 @@ from benchmarks.utils.evaluation_utils import construct_eval_output_dir
 from benchmarks.utils.harbor import (
     HarborCredentialMode,
     check_harbor_installed as _check_harbor_installed,
+    completed_harbor_task_ids,
     convert_harbor_to_eval_output,
     get_supported_task_filter_flag,
     run_harbor_evaluation as _run_harbor_evaluation,
@@ -33,6 +36,106 @@ logger = get_logger(__name__)
 
 # Output filename for results
 OUTPUT_FILENAME = "output.jsonl"
+CHECKPOINT_INTERVAL_SECONDS = 60
+
+
+def _checkpoint_gcs_uri() -> str | None:
+    bucket = os.environ.get("RESULTS_BUCKET")
+    model_slug = os.environ.get("MODEL_SLUG")
+    run_id = os.environ.get("GITHUB_RUN_ID")
+    if not bucket or not model_slug or not run_id:
+        return None
+    return f"gs://{bucket}/terminalbench/{model_slug}/{run_id}/checkpoint.tar.gz"
+
+
+def restore_harbor_checkpoint(structured_output_dir: Path) -> bool:
+    """Restore incremental Harbor results after a Kubernetes pod retry."""
+    checkpoint_uri = _checkpoint_gcs_uri()
+    if checkpoint_uri is None:
+        return False
+    stat = subprocess.run(
+        ["gsutil", "-q", "stat", checkpoint_uri],
+        capture_output=True,
+        text=True,
+    )
+    if stat.returncode != 0:
+        return False
+
+    structured_output_dir.parent.mkdir(parents=True, exist_ok=True)
+    with tempfile.TemporaryDirectory(prefix="terminalbench-checkpoint-") as tmpdir:
+        archive = Path(tmpdir) / "checkpoint.tar.gz"
+        subprocess.run(["gsutil", "cp", checkpoint_uri, str(archive)], check=True)
+        subprocess.run(
+            [
+                "tar",
+                "-xzf",
+                str(archive),
+                "-C",
+                str(structured_output_dir.parent),
+            ],
+            check=True,
+        )
+    logger.info("Restored Harbor checkpoint from %s", checkpoint_uri)
+    return True
+
+
+def upload_harbor_checkpoint(
+    harbor_output_dir: Path,
+    output_path: Path,
+) -> bool:
+    """Convert and upload all complete Harbor trials seen so far."""
+    checkpoint_uri = _checkpoint_gcs_uri()
+    if checkpoint_uri is None or not harbor_output_dir.exists():
+        return False
+    if not completed_harbor_task_ids(harbor_output_dir):
+        return False
+
+    convert_harbor_to_eval_output(
+        harbor_output_dir=harbor_output_dir,
+        eval_output_path=output_path,
+    )
+    with tempfile.TemporaryDirectory(prefix="terminalbench-checkpoint-") as tmpdir:
+        archive = Path(tmpdir) / "checkpoint.tar.gz"
+        subprocess.run(
+            [
+                "tar",
+                "-czf",
+                str(archive),
+                "-C",
+                str(output_path.parent.parent),
+                output_path.parent.name,
+            ],
+            check=True,
+        )
+        subprocess.run(
+            [
+                "gsutil",
+                "-h",
+                "Cache-Control:no-cache, no-store, must-revalidate",
+                "cp",
+                str(archive),
+                checkpoint_uri,
+            ],
+            check=True,
+        )
+    logger.info(
+        "Uploaded resumable Harbor checkpoint with %d tasks to %s",
+        len(completed_harbor_task_ids(harbor_output_dir)),
+        checkpoint_uri,
+    )
+    return True
+
+
+def _checkpoint_loop(
+    stop_event: threading.Event,
+    harbor_output_dir: Path,
+    output_path: Path,
+) -> None:
+    while not stop_event.wait(CHECKPOINT_INTERVAL_SECONDS):
+        try:
+            upload_harbor_checkpoint(harbor_output_dir, output_path)
+        except Exception:
+            logger.exception("Failed to upload Harbor checkpoint; will retry")
 
 
 def check_harbor_installed() -> bool:
@@ -238,6 +341,11 @@ Examples:
     )
 
     logger.info(f"Output directory: {structured_output_dir}")
+    structured_output_path = Path(structured_output_dir)
+    try:
+        restore_harbor_checkpoint(structured_output_path)
+    except Exception:
+        logger.exception("Failed to restore Harbor checkpoint; starting without it")
     os.makedirs(structured_output_dir, exist_ok=True)
 
     # Save metadata
@@ -267,20 +375,49 @@ Examples:
     if not args.skip_harbor:
         # Run harbor evaluation
         try:
-            harbor_output_dir = run_harbor_evaluation(
-                llm=llm,
-                dataset=args.dataset,
-                output_dir=structured_output_dir,
-                num_workers=args.num_workers,
-                task_ids=task_ids,
-                n_limit=args.n_limit,
-            )
+            harbor_output_dir = Path(structured_output_dir) / "harbor_output"
+            if task_ids and harbor_output_dir.exists():
+                completed_ids = completed_harbor_task_ids(harbor_output_dir)
+                if completed_ids:
+                    task_ids = [
+                        task_id for task_id in task_ids if task_id not in completed_ids
+                    ]
+                    logger.info(
+                        "Restored %d completed Harbor tasks; %d selected tasks remain",
+                        len(completed_ids),
+                        len(task_ids),
+                    )
+
+            if task_ids is None or task_ids:
+                stop_event = threading.Event()
+                checkpoint_thread = threading.Thread(
+                    target=_checkpoint_loop,
+                    args=(stop_event, harbor_output_dir, output_path),
+                    name="terminalbench-checkpoint",
+                    daemon=True,
+                )
+                checkpoint_thread.start()
+                try:
+                    harbor_output_dir = run_harbor_evaluation(
+                        llm=llm,
+                        dataset=args.dataset,
+                        output_dir=structured_output_dir,
+                        num_workers=args.num_workers,
+                        task_ids=task_ids,
+                        n_limit=args.n_limit,
+                    )
+                finally:
+                    stop_event.set()
+                    checkpoint_thread.join()
+            else:
+                logger.info("All selected tasks were restored; skipping Harbor execution")
 
             # Convert harbor output to standard format
             convert_harbor_to_eval_output(
                 harbor_output_dir=harbor_output_dir,
                 eval_output_path=output_path,
             )
+            upload_harbor_checkpoint(harbor_output_dir, output_path)
 
         except Exception as e:
             logger.error(f"Evaluation failed: {e}")
