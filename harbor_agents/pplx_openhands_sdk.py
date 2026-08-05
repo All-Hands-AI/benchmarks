@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import base64
 import json
 import re
 import shlex
@@ -23,6 +24,34 @@ class PplxOpenHandsSDK(OpenHandsSDK):
     def _bootstrap_query(instruction: str) -> str:
         """Build a bounded, task-specific query without another model call."""
         return re.sub(r"\s+", " ", instruction).strip()[:300]
+
+    @classmethod
+    def _install_command(cls) -> str:
+        """Install the CLI using only the portable Python runtime."""
+        script = f"""import hashlib
+import os
+import urllib.request
+
+asset = "pplx-x86_64-linux-gnu.bin"
+base = "https://github.com/perplexityai/perplexity-cli/releases/download/{cls.PPLX_VERSION}"
+with urllib.request.urlopen(f"{{base}}/SHA256SUMS", timeout=60) as response:
+    checksum_lines = response.read().decode().splitlines()
+expected = next(line.split()[0] for line in checksum_lines if line.split()[-1] == asset)
+with urllib.request.urlopen(f"{{base}}/{{asset}}", timeout=120) as response:
+    binary = response.read()
+actual = hashlib.sha256(binary).hexdigest()
+if actual != expected:
+    raise RuntimeError(f"pplx checksum mismatch: expected {{expected}}, got {{actual}}")
+with open("/usr/local/bin/pplx", "wb") as output:
+    output.write(binary)
+os.chmod("/usr/local/bin/pplx", 0o755)
+"""
+        encoded = base64.b64encode(script.encode()).decode()
+        return (
+            "/opt/openhands-sdk-venv/bin/python -c "
+            f"{shlex.quote(f'import base64; exec(base64.b64decode({encoded!r}))')}"
+            " && pplx --version"
+        )
 
     @override
     async def install(self, environment: BaseEnvironment) -> None:
@@ -48,17 +77,7 @@ class PplxOpenHandsSDK(OpenHandsSDK):
             await super().install(environment)
         await self.exec_as_root(
             environment,
-            command=(
-                "set -euo pipefail; "
-                "asset=pplx-x86_64-linux-gnu.bin; tmp=$(mktemp -d); "
-                "trap 'rm -rf \"$tmp\"' EXIT; "
-                f"base=https://github.com/perplexityai/perplexity-cli/releases/download/{self.PPLX_VERSION}; "
-                'curl -fsSL --retry 3 "$base/SHA256SUMS" -o "$tmp/SHA256SUMS"; '
-                'curl -fsSL --retry 3 "$base/$asset" -o "$tmp/$asset"; '
-                '(cd "$tmp" && grep "  $asset$" SHA256SUMS | sha256sum -c -); '
-                'install -m 0755 "$tmp/$asset" /usr/local/bin/pplx; '
-                "pplx --version"
-            ),
+            command=self._install_command(),
         )
 
     @override
