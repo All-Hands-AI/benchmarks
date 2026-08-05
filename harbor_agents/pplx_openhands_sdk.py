@@ -3,17 +3,26 @@
 
 from __future__ import annotations
 
+import json
+import re
+import shlex
 from pathlib import Path
 from typing import Any, override
 
 from harbor.agents.installed.openhands_sdk import OpenHandsSDK
 from harbor.environments.base import BaseEnvironment
+from harbor.models.agent.context import AgentContext
 
 
 class PplxOpenHandsSDK(OpenHandsSDK):
     """OpenHands SDK with a pinned ``pplx`` binary and scoped API-key forwarding."""
 
     PPLX_VERSION = "v0.2.2"
+
+    @staticmethod
+    def _bootstrap_query(instruction: str) -> str:
+        """Build a bounded, task-specific query without another model call."""
+        return re.sub(r"\s+", " ", instruction).strip()[:300]
 
     @override
     async def install(self, environment: BaseEnvironment) -> None:
@@ -29,8 +38,12 @@ class PplxOpenHandsSDK(OpenHandsSDK):
             runner_path = Path(adapter.__file__).parent / "openhands_sdk_runner.py"
             local_copy = self.logs_dir / "run_agent.py"
             local_copy.write_text(runner_path.read_text())
-            await environment.upload_file(source_path=local_copy, target_path="/installed-agent/run_agent.py")
-            await environment.exec(command="chmod +x /installed-agent/run_agent.py", user="root")
+            await environment.upload_file(
+                source_path=local_copy, target_path="/installed-agent/run_agent.py"
+            )
+            await environment.exec(
+                command="chmod +x /installed-agent/run_agent.py", user="root"
+            )
         else:
             await super().install(environment)
         await self.exec_as_root(
@@ -47,6 +60,52 @@ class PplxOpenHandsSDK(OpenHandsSDK):
                 "pplx --version"
             ),
         )
+
+    @override
+    async def run(
+        self,
+        instruction: str,
+        environment: BaseEnvironment,
+        context: AgentContext,
+    ) -> None:
+        """Require a successful CLI search and place its evidence in the prompt."""
+        query = self._bootstrap_query(instruction)
+        search = await self.exec_as_agent(
+            environment,
+            command=(
+                "mkdir -p /tmp/pplx-bootstrap && "
+                f"pplx search web {shlex.quote(query)} -n 5 "
+                "--output-dir /tmp/pplx-bootstrap --stdout-preview=500"
+            ),
+            timeout_sec=120,
+        )
+        if search.return_code != 0:
+            raise RuntimeError(
+                "Required Perplexity bootstrap search failed: "
+                f"{(search.stderr or '').strip()[:2000]}"
+            )
+
+        try:
+            payload = json.loads(search.stdout or "")
+        except json.JSONDecodeError as exc:
+            raise RuntimeError(
+                "Perplexity bootstrap search returned invalid JSON"
+            ) from exc
+        if not isinstance(payload, dict) or not isinstance(payload.get("hits"), list):
+            raise RuntimeError("Perplexity bootstrap search JSON did not contain hits")
+
+        research = json.dumps(payload, ensure_ascii=False)[:16000]
+        augmented_instruction = f"""REQUIRED PERPLEXITY RESEARCH
+The agent wrapper has already run a task-specific `pplx search web` command.
+Use the results below when solving the task. You may run additional `pplx`
+searches when useful. Do not expose the API key.
+
+Search query: {query}
+Search result JSON: {research}
+
+ORIGINAL TASK
+{instruction}"""
+        await super().run(augmented_instruction, environment, context)
 
     @override
     async def exec_as_agent(
