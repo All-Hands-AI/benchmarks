@@ -158,6 +158,9 @@ def run_harbor_evaluation(
                 str(agent_setup_timeout_multiplier),
             ]
         )
+    mounts_json = os.environ.get("TERMINALBENCH_HARBOR_MOUNTS_JSON")
+    if mounts_json:
+        cmd.extend(["--mounts", mounts_json])
 
     if task_ids:
         normalize = normalize_task_id or (lambda task_id: task_id)
