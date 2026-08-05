@@ -30,18 +30,27 @@ class PplxOpenHandsSDK(OpenHandsSDK):
         """Install the CLI using only the portable Python runtime."""
         script = f"""import hashlib
 import os
+import ssl
 import urllib.request
+
+import certifi
 
 asset = "pplx-x86_64-linux-gnu.bin"
 base = "https://github.com/perplexityai/perplexity-cli/releases/download/{cls.PPLX_VERSION}"
-with urllib.request.urlopen(f"{{base}}/SHA256SUMS", timeout=60) as response:
-    checksum_lines = response.read().decode().splitlines()
-expected = next(line.split()[0] for line in checksum_lines if line.split()[-1] == asset)
-with urllib.request.urlopen(f"{{base}}/{{asset}}", timeout=120) as response:
-    binary = response.read()
-actual = hashlib.sha256(binary).hexdigest()
-if actual != expected:
-    raise RuntimeError(f"pplx checksum mismatch: expected {{expected}}, got {{actual}}")
+mounted_binary = "/opt/openhands-sdk-venv/bin/pplx"
+if os.path.isfile(mounted_binary):
+    with open(mounted_binary, "rb") as source:
+        binary = source.read()
+else:
+    context = ssl.create_default_context(cafile=certifi.where())
+    with urllib.request.urlopen(f"{{base}}/SHA256SUMS", timeout=60, context=context) as response:
+        checksum_lines = response.read().decode().splitlines()
+    expected = next(line.split()[0] for line in checksum_lines if line.split()[-1] == asset)
+    with urllib.request.urlopen(f"{{base}}/{{asset}}", timeout=120, context=context) as response:
+        binary = response.read()
+    actual = hashlib.sha256(binary).hexdigest()
+    if actual != expected:
+        raise RuntimeError(f"pplx checksum mismatch: expected {{expected}}, got {{actual}}")
 with open("/usr/local/bin/pplx", "wb") as output:
     output.write(binary)
 os.chmod("/usr/local/bin/pplx", 0o755)
