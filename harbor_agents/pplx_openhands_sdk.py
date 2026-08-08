@@ -25,6 +25,22 @@ class PplxOpenHandsSDK(OpenHandsSDK):
         """Build a bounded, task-specific query without another model call."""
         return re.sub(r"\s+", " ", instruction).strip()[:300]
 
+    @staticmethod
+    def _bootstrap_search_command(query: str) -> str:
+        args = [
+            "pplx",
+            "search",
+            "web",
+            "-n",
+            "5",
+            "--output-dir",
+            "/tmp/pplx-bootstrap",
+            "--stdout-preview=500",
+            "--",
+            query,
+        ]
+        return f"mkdir -p /tmp/pplx-bootstrap && {shlex.join(args)}"
+
     @classmethod
     def _install_command(cls) -> str:
         """Install the CLI using only the portable Python runtime."""
@@ -100,11 +116,7 @@ os.chmod("/usr/local/bin/pplx", 0o755)
         query = self._bootstrap_query(instruction)
         search = await self.exec_as_agent(
             environment,
-            command=(
-                "mkdir -p /tmp/pplx-bootstrap && "
-                f"pplx search web {shlex.quote(query)} -n 5 "
-                "--output-dir /tmp/pplx-bootstrap --stdout-preview=500"
-            ),
+            command=self._bootstrap_search_command(query),
             timeout_sec=120,
         )
         if search.return_code != 0:
