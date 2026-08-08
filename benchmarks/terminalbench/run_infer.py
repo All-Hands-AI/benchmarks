@@ -410,7 +410,9 @@ Examples:
                     stop_event.set()
                     checkpoint_thread.join()
             else:
-                logger.info("All selected tasks were restored; skipping Harbor execution")
+                logger.info(
+                    "All selected tasks were restored; skipping Harbor execution"
+                )
 
             # Convert harbor output to standard format
             convert_harbor_to_eval_output(

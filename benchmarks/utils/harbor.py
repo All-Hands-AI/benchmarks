@@ -285,9 +285,7 @@ def convert_harbor_to_eval_output(
         try:
             with result_file.open() as stream:
                 trial = json.load(stream)
-            instance_id = canonicalize(
-                trial.get("task_name", result_file.parent.name)
-            )
+            instance_id = canonicalize(trial.get("task_name", result_file.parent.name))
             latest_result_by_instance[instance_id] = result_file
         except (json.JSONDecodeError, OSError):
             unreadable_result_files.append(result_file)
