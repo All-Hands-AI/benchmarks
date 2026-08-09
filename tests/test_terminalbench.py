@@ -281,7 +281,6 @@ class TestRunHarborEvaluation:
         assert "LLM_API_KEY=test-key" in cmd
         assert "LLM_BASE_URL=https://proxy.example.com" in cmd
 
-
     def test_verifier_bootstrap_selects_custom_control_agent(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
