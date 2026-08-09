@@ -14,6 +14,8 @@ from harbor.agents.installed.openhands_sdk import OpenHandsSDK
 from harbor.environments.base import BaseEnvironment
 from harbor.models.agent.context import AgentContext
 
+from harbor_agents.pplx_command import build_bootstrap_search_command
+
 
 class PplxOpenHandsSDK(OpenHandsSDK):
     """OpenHands SDK with a pinned ``pplx`` binary and scoped API-key forwarding."""
@@ -24,22 +26,6 @@ class PplxOpenHandsSDK(OpenHandsSDK):
     def _bootstrap_query(instruction: str) -> str:
         """Build a bounded, task-specific query without another model call."""
         return re.sub(r"\s+", " ", instruction).strip()[:300]
-
-    @staticmethod
-    def _bootstrap_search_command(query: str) -> str:
-        args = [
-            "pplx",
-            "search",
-            "web",
-            "-n",
-            "5",
-            "--output-dir",
-            "/tmp/pplx-bootstrap",
-            "--stdout-preview=500",
-            "--",
-            query,
-        ]
-        return f"mkdir -p /tmp/pplx-bootstrap && {shlex.join(args)}"
 
     @classmethod
     def _install_command(cls) -> str:
@@ -116,7 +102,7 @@ os.chmod("/usr/local/bin/pplx", 0o755)
         query = self._bootstrap_query(instruction)
         search = await self.exec_as_agent(
             environment,
-            command=self._bootstrap_search_command(query),
+            command=build_bootstrap_search_command(query),
             timeout_sec=120,
         )
         if search.return_code != 0:

@@ -2,11 +2,11 @@
 
 import shlex
 
-from harbor_agents.pplx_openhands_sdk import PplxOpenHandsSDK
+from harbor_agents.pplx_command import build_bootstrap_search_command
 
 
 def test_bootstrap_search_command_accepts_leading_dash_query() -> None:
-    command = PplxOpenHandsSDK._bootstrap_search_command("- recover this model")
+    command = build_bootstrap_search_command("- recover this model")
 
     assert shlex.split(command.split(" && ", maxsplit=1)[1]) == [
         "pplx",
