@@ -168,7 +168,14 @@ def run_harbor_evaluation(
         Path to the harbor output directory.
     """
     pplx_enabled = os.environ.get("TERMINALBENCH_PPLX_ENABLED") == "true"
+    verifier_bootstrap_enabled = (
+        os.environ.get("TERMINALBENCH_VERIFIER_BOOTSTRAP_ENABLED") == "true"
+    )
     agent_name = HARBOR_DEFAULTS["agent_name"]
+    if verifier_bootstrap_enabled:
+        agent_name = (
+            "harbor_agents.verifier_ready_openhands_sdk:VerifierReadyOpenHandsSDK"
+        )
     agent_env: dict[str, str] | None = None
     agent_kwargs: dict[str, object] | None = None
     agent_allowed_hosts: list[str] | None = None

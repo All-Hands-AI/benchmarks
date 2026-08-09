@@ -282,6 +282,46 @@ class TestRunHarborEvaluation:
         assert "LLM_BASE_URL=https://proxy.example.com" in cmd
 
 
+    def test_verifier_bootstrap_selects_custom_control_agent(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        captured: dict[str, list[str]] = {}
+
+        def fake_run(
+            cmd: list[str], capture_output: bool, text: bool, env=None, timeout=None
+        ):
+            if cmd == ["harbor", "run", "--help"]:
+                return type(
+                    "Completed",
+                    (),
+                    {"returncode": 0, "stdout": "--include-task-name", "stderr": ""},
+                )()
+            captured["cmd"] = cmd
+            return type(
+                "Completed", (), {"returncode": 0, "stdout": "ok", "stderr": ""}
+            )()
+
+        monkeypatch.setenv("TERMINALBENCH_VERIFIER_BOOTSTRAP_ENABLED", "true")
+        monkeypatch.setattr(
+            "benchmarks.terminalbench.run_infer.subprocess.run", fake_run
+        )
+
+        run_harbor_evaluation(
+            llm=LLM(
+                model="litellm_proxy/test-model",
+                api_key="test-key",
+                base_url="https://proxy.example.com",
+            ),
+            dataset=INFER_DEFAULTS["dataset"],
+            output_dir=str(tmp_path),
+        )
+
+        cmd = captured["cmd"]
+        assert cmd[cmd.index("-a") + 1] == (
+            "harbor_agents.verifier_ready_openhands_sdk:VerifierReadyOpenHandsSDK"
+        )
+
+
 class TestConvertHarborToEvalOutput:
     """Tests for convert_harbor_to_eval_output function."""
 

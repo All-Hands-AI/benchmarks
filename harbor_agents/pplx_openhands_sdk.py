@@ -7,17 +7,16 @@ import base64
 import json
 import re
 import shlex
-from pathlib import Path
 from typing import Any, override
 
-from harbor.agents.installed.openhands_sdk import OpenHandsSDK
 from harbor.environments.base import BaseEnvironment
 from harbor.models.agent.context import AgentContext
 
 from harbor_agents.pplx_command import build_bootstrap_search_command
+from harbor_agents.verifier_ready_openhands_sdk import VerifierReadyOpenHandsSDK
 
 
-class PplxOpenHandsSDK(OpenHandsSDK):
+class PplxOpenHandsSDK(VerifierReadyOpenHandsSDK):
     """OpenHands SDK with a pinned ``pplx`` binary and scoped API-key forwarding."""
 
     PPLX_VERSION = "v0.2.2"
@@ -66,30 +65,8 @@ os.chmod("/usr/local/bin/pplx", 0o755)
 
     @override
     async def install(self, environment: BaseEnvironment) -> None:
-        # A read-only evaluator-built venv is bind-mounted for batch evals.
-        # Harbor's stock installer unnecessarily chowns that mount after its
-        # existence probe, so install just the runner when it is available.
-        mounted_runtime = await environment.exec(
-            command="/opt/openhands-sdk-venv/bin/python -c 'import openhands.sdk'",
-        )
-        if mounted_runtime.return_code == 0:
-            import harbor.agents.installed.openhands_sdk as adapter
-
-            runner_path = Path(adapter.__file__).parent / "openhands_sdk_runner.py"
-            local_copy = self.logs_dir / "run_agent.py"
-            local_copy.write_text(runner_path.read_text())
-            await environment.upload_file(
-                source_path=local_copy, target_path="/installed-agent/run_agent.py"
-            )
-            await environment.exec(
-                command="chmod +x /installed-agent/run_agent.py", user="root"
-            )
-        else:
-            await super().install(environment)
-        await self.exec_as_root(
-            environment,
-            command=self._install_command(),
-        )
+        await super().install(environment)
+        await self.exec_as_root(environment, command=self._install_command())
 
     @override
     async def run(
