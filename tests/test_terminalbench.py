@@ -8,9 +8,12 @@ import pytest
 from benchmarks.terminalbench.config import INFER_DEFAULTS
 from benchmarks.terminalbench.eval_infer import process_terminalbench_results
 from benchmarks.terminalbench.run_infer import (
+    _checkpoint_gcs_uri,
     convert_harbor_to_eval_output,
     run_harbor_evaluation,
+    upload_harbor_checkpoint,
 )
+from benchmarks.utils.harbor import completed_harbor_task_ids
 from openhands.sdk import LLM
 
 
@@ -489,3 +492,81 @@ class TestConvertHarborToEvalOutput:
         assert len(entries) == 5
         instance_ids = {e["instance_id"] for e in entries}
         assert instance_ids == {f"task-{i}" for i in range(5)}
+
+    def test_completed_ids_require_a_primary_reward(self, tmp_path: Path) -> None:
+        harbor_dir = tmp_path / "harbor_output"
+        attempt = harbor_dir / "2026-01-01__00-00-00"
+        for task_name, payload in {
+            "passed": {"verifier_result": {"rewards": {"reward": 1.0}}},
+            "failed": {"verifier_result": {"rewards": {"reward": 0.0}}},
+            "incomplete": {"verifier_result": {"rewards": {}}},
+        }.items():
+            trial_dir = attempt / task_name
+            trial_dir.mkdir(parents=True)
+            (trial_dir / "result.json").write_text(
+                json.dumps({"task_name": task_name, **payload})
+            )
+        malformed_dir = attempt / "malformed"
+        malformed_dir.mkdir()
+        (malformed_dir / "result.json").write_text("{")
+
+        assert completed_harbor_task_ids(harbor_dir) == {"passed", "failed"}
+
+    def test_conversion_combines_attempts_and_prefers_latest(
+        self, tmp_path: Path
+    ) -> None:
+        harbor_dir = tmp_path / "harbor_output"
+        for attempt_name, task_name, trial_name, reward in [
+            ("2026-01-01__00-00-00", "task-a", "task-a__old", 0.0),
+            ("2026-01-02__00-00-00", "task-b", "task-b__new", 1.0),
+            ("2026-01-02__00-00-00", "task-a", "task-a__new", 1.0),
+        ]:
+            attempt = harbor_dir / attempt_name
+            attempt.mkdir(parents=True, exist_ok=True)
+            (attempt / "result.json").write_text(json.dumps({"id": attempt_name}))
+            trial_dir = attempt / trial_name
+            trial_dir.mkdir()
+            (trial_dir / "result.json").write_text(
+                json.dumps(
+                    {
+                        "task_name": task_name,
+                        "trial_name": trial_name,
+                        "agent_result": {},
+                        "verifier_result": {"rewards": {"reward": reward}},
+                        "exception_info": None,
+                    }
+                )
+            )
+
+        output_file = tmp_path / "output.jsonl"
+        convert_harbor_to_eval_output(harbor_dir, output_file)
+        entries = {
+            entry["instance_id"]: entry
+            for entry in map(json.loads, output_file.read_text().splitlines())
+        }
+
+        assert set(entries) == {"task-a", "task-b"}
+        assert entries["task-a"]["test_result"]["trial_name"] == "task-a__new"
+        assert entries["task-a"]["test_result"]["passed"] is True
+
+    def test_checkpointing_is_disabled_without_run_coordinates(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.delenv("RESULTS_BUCKET", raising=False)
+        monkeypatch.delenv("MODEL_SLUG", raising=False)
+        monkeypatch.delenv("GITHUB_RUN_ID", raising=False)
+
+        assert _checkpoint_gcs_uri() is None
+        assert upload_harbor_checkpoint(tmp_path, tmp_path / "output.jsonl") is False
+
+    def test_checkpoint_uri_uses_run_coordinates(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setenv("RESULTS_BUCKET", "results")
+        monkeypatch.setenv("MODEL_SLUG", "model")
+        monkeypatch.setenv("GITHUB_RUN_ID", "123")
+
+        assert (
+            _checkpoint_gcs_uri()
+            == "gs://results/terminalbench/model/123/checkpoint.tar.gz"
+        )

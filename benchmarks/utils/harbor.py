@@ -204,6 +204,27 @@ def _find_job_dir(harbor_output_dir: Path) -> Path:
     return sorted(candidates)[-1]
 
 
+def find_harbor_trial_result_files(harbor_output_dir: Path) -> list[Path]:
+    """Return trial results from every timestamped Harbor attempt."""
+    return sorted(harbor_output_dir.glob("*/*/result.json"))
+
+
+def completed_harbor_task_ids(harbor_output_dir: Path) -> set[str]:
+    """Return task IDs with a complete, parseable Harbor trial result."""
+    completed: set[str] = set()
+    for result_file in find_harbor_trial_result_files(harbor_output_dir):
+        try:
+            with result_file.open() as stream:
+                trial = json.load(stream)
+        except (json.JSONDecodeError, OSError):
+            continue
+        task_name = trial.get("task_name")
+        rewards = (trial.get("verifier_result") or {}).get("rewards") or {}
+        if isinstance(task_name, str) and task_name and "reward" in rewards:
+            completed.add(task_name)
+    return completed
+
+
 def convert_harbor_to_eval_output(
     harbor_output_dir: Path,
     eval_output_path: Path,
@@ -214,17 +235,34 @@ def convert_harbor_to_eval_output(
     logger.info(f"Converting harbor output from {harbor_output_dir}")
 
     canonicalize = canonicalize_instance_id or (lambda instance_id: instance_id)
-    job_dir = _find_job_dir(harbor_output_dir)
-    logger.info(f"Using harbor job directory: {job_dir}")
-
-    result_files = [f for f in job_dir.glob("*/result.json") if f.parent != job_dir]
+    result_files = find_harbor_trial_result_files(harbor_output_dir)
     if not result_files:
+        # Preserve the established distinction between no Harbor job at all
+        # and a completed job that contains no trial results.
+        job_dir = _find_job_dir(harbor_output_dir)
         raise RuntimeError(
             f"No trial result files found in {job_dir}. "
-            f"Expected result.json files in trial subdirectories."
+            "Expected result.json files in timestamp/trial subdirectories."
         )
 
-    logger.info(f"Found {len(result_files)} trial results in {job_dir}")
+    logger.info(
+        f"Found {len(result_files)} trial results across Harbor attempts in "
+        f"{harbor_output_dir}"
+    )
+
+    # A retry normally filters restored IDs, but a crash can occur between a
+    # result write and the next checkpoint. Prefer the later timestamped copy.
+    latest_result_by_instance: dict[str, Path] = {}
+    unreadable_result_files: list[Path] = []
+    for result_file in result_files:
+        try:
+            with result_file.open() as stream:
+                trial = json.load(stream)
+            instance_id = canonicalize(trial.get("task_name", result_file.parent.name))
+            latest_result_by_instance[instance_id] = result_file
+        except (json.JSONDecodeError, OSError):
+            unreadable_result_files.append(result_file)
+    result_files = list(latest_result_by_instance.values()) + unreadable_result_files
 
     results: list[dict] = []
     errors: list[dict] = []
