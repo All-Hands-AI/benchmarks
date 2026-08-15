@@ -10,12 +10,14 @@ import pytest
 
 from benchmarks.harbor.run_infer import (
     _is_sensitive_value,
+    _llm_agent_env,
     _load_task_ids,
     _parse_key_value,
     _resolve_target,
     _split_json_values,
     _target_args,
 )
+from openhands.sdk import LLM
 
 
 def test_load_task_ids_strips_and_ignores_comments(tmp_path: Path) -> None:
@@ -58,6 +60,12 @@ def test_split_json_values_dict() -> None:
     assert _split_json_values('{"A": "1", "B": "2"}') == ["A=1", "B=2"]
 
 
+def test_split_json_values_preserves_nested_json() -> None:
+    assert _split_json_values(
+        '{"model_kwargs": {"temperature": 1.0, "top_p": 0.95}}'
+    ) == ['model_kwargs={"temperature":1.0,"top_p":0.95}']
+
+
 def test_split_json_values_list() -> None:
     assert _split_json_values('["A=1", "B=2"]') == ["A=1", "B=2"]
 
@@ -65,6 +73,36 @@ def test_split_json_values_list() -> None:
 def test_split_json_values_invalid() -> None:
     with pytest.raises(ValueError, match="Expected a JSON object or list"):
         _split_json_values('"not-an-object-or-list"')
+
+
+def test_llm_agent_env_uses_generic_names_for_openhands() -> None:
+    assert _llm_agent_env(
+        LLM(
+            model="litellm_proxy/test/model",
+            api_key="secret",
+            base_url="https://proxy.example.com",
+        ),
+        "openhands-sdk",
+    ) == [
+        "LLM_API_KEY=secret",
+        "LLM_BASE_URL=https://proxy.example.com",
+    ]
+
+
+def test_llm_agent_env_adds_openai_proxy_aliases_for_mini_swe() -> None:
+    assert _llm_agent_env(
+        LLM(
+            model="litellm_proxy/test/model",
+            api_key="secret",
+            base_url="https://proxy.example.com",
+        ),
+        "mini-swe-agent",
+    ) == [
+        "LLM_API_KEY=secret",
+        "OPENAI_API_KEY=secret",
+        "LLM_BASE_URL=https://proxy.example.com",
+        "OPENAI_BASE_URL=https://proxy.example.com",
+    ]
 
 
 def _make_args(**kwargs: object) -> argparse.Namespace:
