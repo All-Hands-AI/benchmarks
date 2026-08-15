@@ -1,0 +1,12 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "openhands-miniswe-context-model"
+version = "0.1.0"
+description = "Bounded-history LiteLLM model wrapper for mini-swe-agent evaluations"
+requires-python = ">=3.11"
+
+[tool.setuptools.packages.find]
+where = ["src"]

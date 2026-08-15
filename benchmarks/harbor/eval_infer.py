@@ -9,12 +9,37 @@ import sys
 from pathlib import Path
 from typing import Any
 
+from benchmarks.utils.harbor import convert_harbor_to_eval_output
 from benchmarks.utils.laminar import LaminarService
 from benchmarks.utils.report_costs import generate_cost_report
 from openhands.sdk import get_logger
 
 
 logger = get_logger(__name__)
+
+
+def refresh_eval_output_from_harbor(input_file: Path) -> bool:
+    """Rebuild converted output from raw Harbor results when they are available.
+
+    Inference archives contain both ``output.jsonl`` and the authoritative
+    ``harbor_output`` tree. Re-running the converter in the evaluation phase
+    lets converter fixes take effect during a rescore and avoids permanently
+    classifying verifier-scored agent failures according to stale JSONL.
+    """
+    harbor_output_dir = input_file.parent / "harbor_output"
+    if not harbor_output_dir.is_dir():
+        logger.info(
+            "Raw Harbor output not found at %s; using existing converted output",
+            harbor_output_dir,
+        )
+        return False
+
+    convert_harbor_to_eval_output(
+        harbor_output_dir=harbor_output_dir,
+        eval_output_path=input_file,
+    )
+    logger.info("Refreshed %s from raw Harbor results", input_file)
+    return True
 
 
 def _metric(
@@ -143,6 +168,7 @@ def main() -> None:
         else input_file.with_suffix(".report.json")
     )
     try:
+        refresh_eval_output_from_harbor(input_file)
         process_harbor_results(str(input_file), str(output_file))
         generate_cost_report(str(input_file))
     except Exception as exc:

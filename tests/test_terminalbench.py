@@ -405,6 +405,39 @@ class TestConvertHarborToEvalOutput:
         assert report["error_instances"] == 1
         assert report["incomplete_ids"] == ["error-task"]
 
+    def test_trial_with_exception_and_verifier_reward_is_scored(
+        self, tmp_path: Path
+    ) -> None:
+        """A post-agent verifier result remains authoritative after a timeout."""
+        trial_result = {
+            "task_name": "completed-before-timeout",
+            "trial_name": "completed-before-timeout__abc",
+            "trial_uri": "file:///path/to/trial",
+            "agent_result": {
+                "n_input_tokens": 500,
+                "n_output_tokens": 100,
+                "cost_usd": 0.01,
+            },
+            "verifier_result": {"rewards": {"reward": 1.0}},
+            "exception_info": {
+                "type": "AgentTimeoutError",
+                "message": "Agent execution timed out",
+            },
+        }
+
+        harbor_dir = self._create_harbor_structure(
+            tmp_path, [("completed-before-timeout__abc", trial_result)]
+        )
+        output_file = tmp_path / "output.jsonl"
+
+        convert_harbor_to_eval_output(harbor_dir, output_file)
+
+        entry = json.loads(output_file.read_text())
+        assert entry["error"] is None
+        assert entry["test_result"]["passed"] is True
+        assert entry["test_result"]["rewards"] == {"reward": 1.0}
+        assert entry["test_result"]["agent_exception"] == trial_result["exception_info"]
+
     def test_mixed_valid_and_exception_trials(self, tmp_path: Path) -> None:
         """Test handling mix of successful and exception trials."""
         trials = [

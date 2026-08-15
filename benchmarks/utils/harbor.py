@@ -274,7 +274,16 @@ def convert_harbor_to_eval_output(
 
             instance_id = canonicalize(trial.get("task_name", result_file.parent.name))
 
-            if trial.get("exception_info"):
+            verifier_result = trial.get("verifier_result") or {}
+            rewards = verifier_result.get("rewards") or {}
+            has_primary_reward = "reward" in rewards
+
+            # Harbor can still run the verifier after an agent timeout or other
+            # non-zero exit. In that case the verifier is authoritative: a reward
+            # of 1 is a resolved task, and a reward of 0 is a completed unresolved
+            # task. Only emit an incomplete error when no primary verifier reward
+            # exists (for example, setup or verifier failures).
+            if trial.get("exception_info") and not has_primary_reward:
                 errors.append(
                     {
                         "instance_id": instance_id,
@@ -284,8 +293,6 @@ def convert_harbor_to_eval_output(
                 )
                 continue
 
-            verifier_result = trial.get("verifier_result", {})
-            rewards = verifier_result.get("rewards", {})
             passed = rewards.get("reward", 0.0) > 0
             agent_result = trial.get("agent_result", {})
 
@@ -308,6 +315,8 @@ def convert_harbor_to_eval_output(
                     "total_cost_usd": agent_result.get("cost_usd") or 0.0,
                 },
             }
+            if trial.get("exception_info"):
+                eval_entry["test_result"]["agent_exception"] = trial["exception_info"]
             results.append(eval_entry)
             logger.info(
                 f"Processed trial {instance_id}: reward={rewards.get('reward', 'N/A')}"
