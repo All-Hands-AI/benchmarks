@@ -332,6 +332,8 @@ class TestAssembleAgentImage:
         assert result.error is not None
         assert "Failed to push 1/2 tags" in result.error
         assert result.tags == ["tag-1"]
+        assert result.build_seconds is not None
+        assert result.push_seconds is not None
 
     def test_build_failure_returns_error(self, tmp_path):
         from benchmarks.swebench.build_base_images import assemble_agent_image
@@ -358,6 +360,8 @@ class TestAssembleAgentImage:
         assert result.error is not None
         assert "docker build failed" in result.error
         assert result.tags == []
+        assert result.build_seconds is not None
+        assert result.duration_seconds is not None
 
     def test_all_pushes_succeed(self, tmp_path):
         from benchmarks.swebench.build_base_images import assemble_agent_image
@@ -383,6 +387,30 @@ class TestAssembleAgentImage:
 
         assert result.error is None
         assert result.tags == ["tag-1", "tag-2"]
+        assert result.duration_seconds is not None
+        assert result.build_seconds is not None
+        assert result.push_seconds is not None
+        assert result.rmi_seconds is not None
+        assert result.rmi_returncode == 0
+        assert result.rmi_timed_out is False
+        assert result.system_prune_seconds is not None
+        assert result.system_prune_returncode == 0
+        assert result.system_prune_timed_out is False
+        assert result.builder_prune_seconds is not None
+        assert result.builder_prune_returncode == 0
+        assert result.builder_prune_timed_out is False
+        assert result.cleanup_ok is True
+        assert result.duration_seconds >= sum(
+            phase_seconds
+            for phase_seconds in (
+                result.build_seconds,
+                result.push_seconds,
+                result.rmi_seconds,
+                result.system_prune_seconds,
+                result.builder_prune_seconds,
+            )
+            if phase_seconds is not None
+        )
         commands = [call.args[0] for call in mock_run.call_args_list]
         assert commands[-3:] == [
             [
@@ -404,6 +432,106 @@ class TestAssembleAgentImage:
             ],
         ]
 
+    def test_no_push_skips_cleanup_telemetry(self, tmp_path):
+        from benchmarks.swebench.build_base_images import assemble_agent_image
+
+        dockerfile = tmp_path / "Dockerfile.agent-layer"
+        dockerfile.write_text("FROM scratch\n")
+
+        with (
+            patch(
+                "benchmarks.swebench.build_base_images.AGENT_LAYER_DOCKERFILE",
+                dockerfile,
+            ),
+            patch(
+                "benchmarks.swebench.build_base_images.subprocess.run",
+                return_value=_ok_proc(),
+            ) as mock_run,
+        ):
+            result = assemble_agent_image(
+                base_tag="ghcr.io/openhands/eval-base:abc",
+                builder_tag="ghcr.io/openhands/eval-builder:def",
+                final_tags=["tag-1"],
+                push=False,
+            )
+
+        assert result.error is None
+        assert result.push_seconds == 0.0
+        assert result.rmi_seconds is None
+        assert result.system_prune_seconds is None
+        assert result.builder_prune_seconds is None
+        assert result.cleanup_ok is None
+        mock_run.assert_called_once()
+
+    def test_cleanup_nonzero_does_not_fail_assembly(self, tmp_path):
+        from benchmarks.swebench.build_base_images import assemble_agent_image
+
+        dockerfile = tmp_path / "Dockerfile.agent-layer"
+        dockerfile.write_text("FROM scratch\n")
+
+        with (
+            patch(
+                "benchmarks.swebench.build_base_images.AGENT_LAYER_DOCKERFILE",
+                dockerfile,
+            ),
+            patch("benchmarks.swebench.build_base_images.subprocess.run") as mock_run,
+        ):
+            mock_run.side_effect = [
+                _ok_proc(),  # docker build
+                _ok_proc(),  # docker push
+                _ok_proc(),  # docker rmi
+                _fail_proc("prune locked"),  # docker system prune
+                _ok_proc(),  # docker builder prune
+            ]
+
+            result = assemble_agent_image(
+                base_tag="ghcr.io/openhands/eval-base:abc",
+                builder_tag="ghcr.io/openhands/eval-builder:def",
+                final_tags=["tag-1"],
+                push=True,
+            )
+
+        assert result.error is None
+        assert result.tags == ["tag-1"]
+        assert result.status == "built"
+        assert result.cleanup_ok is False
+        assert result.system_prune_returncode == 1
+        assert result.system_prune_timed_out is False
+
+    def test_cleanup_timeout_does_not_fail_assembly(self, tmp_path):
+        from benchmarks.swebench.build_base_images import assemble_agent_image
+
+        dockerfile = tmp_path / "Dockerfile.agent-layer"
+        dockerfile.write_text("FROM scratch\n")
+
+        with (
+            patch(
+                "benchmarks.swebench.build_base_images.AGENT_LAYER_DOCKERFILE",
+                dockerfile,
+            ),
+            patch("benchmarks.swebench.build_base_images.subprocess.run") as mock_run,
+        ):
+            mock_run.side_effect = [
+                _ok_proc(),  # docker build
+                _ok_proc(),  # docker push
+                _ok_proc(),  # docker rmi
+                _timeout_exc(stderr="prune stalled"),  # docker system prune
+                _ok_proc(),  # docker builder prune
+            ]
+
+            result = assemble_agent_image(
+                base_tag="ghcr.io/openhands/eval-base:abc",
+                builder_tag="ghcr.io/openhands/eval-builder:def",
+                final_tags=["tag-1"],
+                push=True,
+            )
+
+        assert result.error is None
+        assert result.tags == ["tag-1"]
+        assert result.cleanup_ok is False
+        assert result.system_prune_returncode is None
+        assert result.system_prune_timed_out is True
+
     def test_missing_dockerfile_returns_error(self, tmp_path):
         from benchmarks.swebench.build_base_images import assemble_agent_image
 
@@ -418,6 +546,9 @@ class TestAssembleAgentImage:
             )
         assert result.error is not None
         assert "not found" in result.error
+        assert result.status == "failed"
+        assert result.duration_seconds is not None
+        assert result.build_seconds == 0.0
 
     def test_build_timeout_returns_error(self, tmp_path):
         from benchmarks.swebench.build_base_images import assemble_agent_image
@@ -445,6 +576,8 @@ class TestAssembleAgentImage:
         assert result.tags == []
         assert result.error is not None
         assert "timed out" in result.error
+        assert result.build_seconds is not None
+        assert result.duration_seconds is not None
 
 
 # ---------------------------------------------------------------------------
@@ -541,7 +674,18 @@ class TestAssembleAllAgentImages:
     ):
         from benchmarks.swebench.build_base_images import assemble_all_agent_images
 
-        ok = BuildOutput(base_image="img-a", tags=["final-tag"], error=None)
+        ok = BuildOutput(
+            base_image="img-a",
+            tags=["final-tag"],
+            error=None,
+            duration_seconds=3.0,
+            build_seconds=2.0,
+            push_seconds=0.5,
+            rmi_seconds=0.1,
+            rmi_returncode=0,
+            rmi_timed_out=False,
+            cleanup_ok=True,
+        )
         mock_assemble.return_value = ok
 
         rc = assemble_all_agent_images(
@@ -559,6 +703,12 @@ class TestAssembleAllAgentImages:
         ]
         assert len(records) == 1
         assert records[0]["tags"] == ["final-tag"]
+        assert records[0]["duration_seconds"] == 3.0
+        assert records[0]["build_seconds"] == 2.0
+        assert records[0]["push_seconds"] == 0.5
+        assert records[0]["rmi_seconds"] == 0.1
+        assert records[0]["rmi_returncode"] == 0
+        assert records[0]["cleanup_ok"] is True
         mock_docker_command.assert_called_once_with(
             ["docker", "buildx", "prune", "-af"]
         )
