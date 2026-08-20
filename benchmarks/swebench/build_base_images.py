@@ -533,6 +533,16 @@ def assemble_agent_image(
         )
 
     tag_label = final_tags[0] if final_tags else base_tag
+    if not final_tags:
+        return BuildOutput(
+            base_image=base_tag,
+            tags=[],
+            error="No final tags provided for agent image assembly",
+            status="failed",
+            duration_seconds=round(time.monotonic() - overall_started, 3),
+            build_seconds=0.0,
+            push_seconds=push_seconds,
+        )
 
     # Step 1: docker build (local daemon, no remote driver)
     build_cmd = [
@@ -553,7 +563,24 @@ def assemble_agent_image(
 
     logger.info("[assembly] Building: %s", " ".join(build_cmd))
     build_started = time.monotonic()
-    proc, timeout_error = _run_docker_command(build_cmd)
+    try:
+        proc, timeout_error = _run_docker_command(build_cmd)
+    except Exception as exc:
+        build_seconds = round(time.monotonic() - build_started, 3)
+        error = f"docker build raised: {exc!r}"
+        logger.warning("[assembly] %s: %s", error, tag_label)
+        return BuildOutput(
+            base_image=base_tag,
+            tags=[],
+            error=error,
+            status="failed",
+            duration_seconds=round(
+                max(time.monotonic() - overall_started, build_seconds + push_seconds),
+                3,
+            ),
+            build_seconds=build_seconds,
+            push_seconds=push_seconds,
+        )
     build_seconds = round(time.monotonic() - build_started, 3)
     if timeout_error:
         logger.info(
@@ -609,7 +636,12 @@ def assemble_agent_image(
             push_cmd = ["docker", "push", t]
             logger.info("[assembly] Pushing: %s", t)
             push_started = time.monotonic()
-            push_proc, timeout_error = _run_docker_command(push_cmd)
+            try:
+                push_proc, timeout_error = _run_docker_command(push_cmd)
+            except Exception as exc:
+                push_seconds += time.monotonic() - push_started
+                failed_pushes.append((t, f"docker push raised: {exc!r}"[:200]))
+                continue
             push_seconds += time.monotonic() - push_started
             if timeout_error:
                 failed_pushes.append((t, timeout_error[:200]))
@@ -681,7 +713,9 @@ def assemble_agent_image(
             logger.warning("[assembly] rmi cleanup raised for %s: %s", tag_label, exc)
         rmi_seconds = round(time.monotonic() - rmi_started, 3)
         rmi_returncode = rmi_proc.returncode if rmi_proc is not None else None
-        rmi_timed_out = rmi_timeout is not None
+        rmi_timed_out = (
+            True if rmi_timeout is not None else (None if rmi_proc is None else False)
+        )
         rmi_ok = (
             rmi_proc is not None and rmi_timeout is None and rmi_proc.returncode == 0
         )
@@ -712,7 +746,11 @@ def assemble_agent_image(
         system_prune_returncode = (
             sys_prune_proc.returncode if sys_prune_proc is not None else None
         )
-        system_prune_timed_out = sys_prune_timeout is not None
+        system_prune_timed_out = (
+            True
+            if sys_prune_timeout is not None
+            else (None if sys_prune_proc is None else False)
+        )
         system_prune_ok = (
             sys_prune_proc is not None
             and sys_prune_timeout is None
@@ -750,7 +788,9 @@ def assemble_agent_image(
             )
         builder_prune_seconds = round(time.monotonic() - builder_prune_started, 3)
         builder_prune_returncode = bp_proc.returncode if bp_proc is not None else None
-        builder_prune_timed_out = bp_timeout is not None
+        builder_prune_timed_out = (
+            True if bp_timeout is not None else (None if bp_proc is None else False)
+        )
         builder_prune_ok = (
             bp_proc is not None and bp_timeout is None and bp_proc.returncode == 0
         )
@@ -840,6 +880,7 @@ def _assemble_with_logging(
         "rmi_seconds",
         "system_prune_seconds",
         "builder_prune_seconds",
+        "post_build_seconds",
     )
     phase_totals = {field: 0.0 for field in phase_fields}
     phase_seen = {field: False for field in phase_fields}
@@ -865,6 +906,7 @@ def _assemble_with_logging(
                     max_retries,
                 )
                 time.sleep(2 + attempt * 2)
+            attempt_started_monotonic = time.monotonic()
             try:
                 result = assemble_agent_image(
                     base_tag=base_tag,
@@ -873,13 +915,16 @@ def _assemble_with_logging(
                     push=push,
                     git_sha=sdk_full_sha,
                 )
-            except Exception as e:
+            except Exception as exc:
                 result = BuildOutput(
                     base_image=base_image,
                     tags=[],
-                    error=repr(e),
+                    error=repr(exc),
                     status="failed",
                     log_path=str(log_path),
+                    duration_seconds=round(
+                        time.monotonic() - attempt_started_monotonic, 3
+                    ),
                 )
             result.log_path = str(log_path)
             for field in phase_fields:
@@ -926,6 +971,8 @@ def _assemble_with_logging(
 
             if should_wrap_custom_tag(custom_tag):
                 logger.info("Wrapping %s with docutils/roman", final_tag)
+                wrapper_started = time.monotonic()
+                wrap_result = None
                 try:
                     wrap_result = wrap_image(final_tag, push=push)
                 except Exception as exc:
@@ -945,6 +992,11 @@ def _assemble_with_logging(
                                 "log_path": str(log_path),
                             }
                         )
+                wrapper_seconds = time.monotonic() - wrapper_started
+                if wrap_result is not None and wrap_result.duration_seconds is not None:
+                    wrapper_seconds = max(wrapper_seconds, wrap_result.duration_seconds)
+                phase_totals["post_build_seconds"] += wrapper_seconds
+                phase_seen["post_build_seconds"] = True
                 if result.error:
                     final_result = result
                     if attempt == max_retries - 1:

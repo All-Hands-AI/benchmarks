@@ -221,7 +221,15 @@ def test_summary_aggregates_assembly_cleanup_telemetry():
                 "builder_prune_returncode": None,
                 "builder_prune_timed_out": True,
                 "cleanup_ok": False,
-            }
+            },
+            {
+                "base_image": "repo/image-timeout-only",
+                "status": "built",
+                "tags": ["tag-timeout"],
+                "duration_seconds": 5.0,
+                "system_prune_timed_out": True,
+                "cleanup_ok": False,
+            },
         ],
         manifest_files=1,
     )
@@ -231,7 +239,7 @@ def test_summary_aggregates_assembly_cleanup_telemetry():
     assert summary.cumulative_system_prune_seconds == 0.2
     assert summary.cumulative_builder_prune_seconds == 0.3
     assert summary.cleanup_failures == 1
-    assert summary.cleanup_timeouts == 1
+    assert summary.cleanup_timeouts == 2
     assert summary.rmi_failures == 0
     assert summary.system_prune_failures == 1
     assert summary.builder_prune_timeouts == 1
@@ -240,5 +248,5 @@ def test_summary_aggregates_assembly_cleanup_telemetry():
     assert "### Phase Totals" in markdown
     assert "**Push:** 2s" in markdown
     assert "**System Prune:** 0s" in markdown
-    assert "Cleanup failures: 1" in markdown
-    assert "Cleanup timeouts: 1" in markdown
+    assert "Cleanup failures (excluding timeouts): 1" in markdown
+    assert "Cleanup timeouts: 2" in markdown

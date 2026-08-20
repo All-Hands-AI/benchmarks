@@ -191,14 +191,20 @@ def summarize_build_records(
         if duration_seconds is not None:
             cumulative_duration += duration_seconds
 
-        if record.get("cleanup_ok") is False:
-            cleanup_failures += 1
+        record_has_failure = False
+        record_has_timeout = False
         for phase in ("rmi", "system_prune", "builder_prune"):
             if record.get(f"{phase}_timed_out") is True:
+                record_has_timeout = True
                 cleanup_timeouts += 1
                 cleanup_timeout_counts[phase] += 1
             if _is_nonzero_returncode(record.get(f"{phase}_returncode")):
+                record_has_failure = True
                 cleanup_failure_counts[phase] += 1
+        if record.get("cleanup_ok") is False and not record_has_timeout:
+            record_has_failure = True
+        if record_has_failure:
+            cleanup_failures += 1
 
         if status == "built" and duration_seconds is not None:
             build_durations.append(duration_seconds)
@@ -423,7 +429,9 @@ def render_build_summary_markdown(
     )
     if any(cleanup_counts):
         lines.extend(["", "### Cleanup Health", ""])
-        lines.append(f"- Cleanup failures: {summary.cleanup_failures}")
+        lines.append(
+            f"- Cleanup failures (excluding timeouts): {summary.cleanup_failures}"
+        )
         lines.append(f"- Cleanup timeouts: {summary.cleanup_timeouts}")
         for label, count in (
             ("RMI failures", summary.rmi_failures),
