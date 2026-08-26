@@ -11,10 +11,10 @@ TIMING = (
     re.compile(r"\s*\(\s*\d+(?:\.\d+)?\s*(?:ms|s)\s*\)\s*$", re.I),
 )
 FORBIDDEN = (
-    re.compile(r"\b(?:curl|wget|gh)\b", re.I),
-    re.compile(r"\bgit\s+(?:clone|fetch|pull|ls-remote)\b", re.I),
+    re.compile(r"(?:^|[;&|]\s*)(?:sudo\s+)?(?:curl|wget|gh)\b", re.I),
+    re.compile(r"(?:^|[;&|]\s*)(?:sudo\s+)?git\s+(?:clone|fetch|pull|ls-remote)\b", re.I),
     re.compile(r"(?:github\.com|raw\.githubusercontent\.com|api\.github\.com|gitlab\.com|bitbucket\.org)", re.I),
-    re.compile(r"\b(?:env|printenv)\b|/proc/(?:self|[0-9]+)/environ", re.I),
+    re.compile(r"(?:^|[;&|]\s*)(?:sudo\s+)?(?:env|printenv)\b|/proc/(?:self|[0-9]+)/environ", re.I),
 )
 def normalize(name):
     for pattern in TIMING:
