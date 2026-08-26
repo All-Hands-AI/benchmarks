@@ -71,3 +71,15 @@ def test_hidden_verifier_requires_solver_pplx_and_blocks_bypass() -> None:
         assert "no successful audited PPLX search" in source
         assert "attempted to bypass audited PPLX wrapper" in source
         assert "pplx_success_count" in source
+
+
+def test_mandatory_pplx_skill_is_packaged() -> None:
+    skill = (
+        Path(__file__).resolve().parents[1]
+        / "harbor_agents"
+        / "skills"
+        / "mandatory-pplx"
+        / "SKILL.md"
+    ).read_text()
+    assert "first terminal action" in skill
+    assert "reward is zero" in skill

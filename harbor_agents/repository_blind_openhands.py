@@ -193,15 +193,19 @@ print(json.dumps(record["payload"]))
         if not instance_id:
             raise RuntimeError(f"Unknown SWE-rebench task session: {session_id}")
         wrapper = self._wrapper_source(TASK_REPOSITORIES[instance_id], instance_id)
-        encoded = base64.b64encode(wrapper.encode()).decode()
+        skill_source = Path(__file__).parent / "skills" / "mandatory-pplx" / "SKILL.md"
+        wrapper_encoded = base64.b64encode(wrapper.encode()).decode()
+        skill_encoded = base64.b64encode(skill_source.read_bytes()).decode()
         result = await self.exec_as_root(
             environment,
             command=(
                 "/opt/openhands-sdk-venv/bin/python -c "
                 + repr(
                     "import base64,pathlib; "
-                    f"pathlib.Path('/usr/local/bin/pplx').write_bytes(base64.b64decode({encoded!r})); "
+                    f"pathlib.Path('/usr/local/bin/pplx').write_bytes(base64.b64decode({wrapper_encoded!r})); "
                     "pathlib.Path('/usr/local/bin/pplx').chmod(0o755); "
+                    "pathlib.Path('/root/.openhands-sdk/skills/mandatory-pplx').mkdir(parents=True, exist_ok=True); "
+                    f"pathlib.Path('/root/.openhands-sdk/skills/mandatory-pplx/SKILL.md').write_bytes(base64.b64decode({skill_encoded!r})); "
                     "pathlib.Path('/logs/agent/pplx_required').touch()"
                 )
             ),
