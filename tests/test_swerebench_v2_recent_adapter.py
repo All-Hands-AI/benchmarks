@@ -7,6 +7,7 @@ from harbor_agents.repository_blind_openhands import (
     TASK_REPOSITORIES,
     audit_search,
     repository_blind_query,
+    resolve_task_id,
 )
 
 
@@ -35,6 +36,13 @@ def test_search_audit_rejects_code_hosts_and_mirrors() -> None:
     }
     violations = audit_search(payload, "acme/widget", "acme__widget-42")
     assert len(violations) == 3
+
+
+def test_truncated_harbor_session_resolves_full_task_id() -> None:
+    assert (
+        resolve_task_id("juliasymbolics__symbolics.jl-167__cT5EN9X__agent")
+        == "juliasymbolics__symbolics.jl-1673"
+    )
 
 
 def test_selected_tasks_are_complete_and_do_not_expose_gold_in_instructions() -> None:

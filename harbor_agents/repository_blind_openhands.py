@@ -45,6 +45,18 @@ TASK_REPOSITORIES = {
 }
 
 
+def resolve_task_id(session_id: str) -> str:
+    truncated_task_id = session_id.rsplit("__", 2)[0]
+    return next(
+        (
+            task_id
+            for task_id in TASK_REPOSITORIES
+            if task_id.startswith(truncated_task_id)
+        ),
+        "",
+    )
+
+
 def repository_blind_query(instruction: str, repository: str, instance_id: str) -> str:
     owner, name = repository.split("/", 1)
     text = instruction.rsplit("ORIGINAL TASK", 1)[-1]
@@ -136,14 +148,7 @@ class PplxOpenHandsSDK(VerifierReadyOpenHandsSDK):
         context: AgentContext,
     ) -> None:
         session_id = self.session_id or ""
-        instance_id = next(
-            (
-                task_id
-                for task_id in TASK_REPOSITORIES
-                if session_id.startswith(task_id)
-            ),
-            "",
-        )
+        instance_id = resolve_task_id(session_id)
         if not instance_id:
             raise RuntimeError(f"Unknown SWE-rebench task session: {session_id}")
         repository = TASK_REPOSITORIES[instance_id]
