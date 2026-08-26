@@ -8,8 +8,7 @@ language = "csharp"
 
 [agent]
 timeout_sec = 7200
-network_mode = "allowlist"
-allowed_hosts = ["llm-proxy.eval.all-hands.dev"]
+network_mode = "public"
 
 [verifier]
 timeout_sec = 7200
@@ -18,5 +17,4 @@ network_mode = "public"
 [environment]
 docker_image = "docker.io/swerebenchv2/spectreconsole-spectre.console:1942-010beff"
 workdir = "/spectre.console"
-network_mode = "allowlist"
-allowed_hosts = ["llm-proxy.eval.all-hands.dev"]
+network_mode = "public"

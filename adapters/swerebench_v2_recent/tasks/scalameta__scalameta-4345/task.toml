@@ -8,8 +8,7 @@ language = "scala"
 
 [agent]
 timeout_sec = 7200
-network_mode = "allowlist"
-allowed_hosts = ["llm-proxy.eval.all-hands.dev"]
+network_mode = "public"
 
 [verifier]
 timeout_sec = 7200
@@ -18,5 +17,4 @@ network_mode = "public"
 [environment]
 docker_image = "docker.io/swerebenchv2/scalameta-scalameta:4345-1fc433e"
 workdir = "/scalameta"
-network_mode = "allowlist"
-allowed_hosts = ["llm-proxy.eval.all-hands.dev"]
+network_mode = "public"

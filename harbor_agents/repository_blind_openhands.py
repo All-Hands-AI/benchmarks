@@ -24,7 +24,6 @@ FORBIDDEN_HOSTS = (
     "gitlab.com",
     "raw.githubusercontent.com",
 )
-LLM_PROXY_HOST = "llm-proxy.eval.all-hands.dev"
 POLICY = """ANTI-LOOKUP RULE — VIOLATION MAKES THE RESULT INCORRECT:
 Do not search for, browse, fetch, clone, or inspect this project, its issue, pull
 request, commits, or patches on GitHub or another code-hosting site. Do not use
@@ -127,10 +126,7 @@ class VerifierReadyOpenHandsSDK(OpenHandsSDK):
         context: AgentContext,
     ) -> None:
         await environment.set_network_policy(
-            NetworkPolicy(
-                network_mode=NetworkMode.ALLOWLIST,
-                allowed_hosts=[LLM_PROXY_HOST],
-            )
+            NetworkPolicy(network_mode=NetworkMode.PUBLIC)
         )
         await super().run(
             f"{POLICY}\nORIGINAL TASK\n{instruction}", environment, context
@@ -195,10 +191,7 @@ class PplxOpenHandsSDK(VerifierReadyOpenHandsSDK):
         )
 
         await environment.set_network_policy(
-            NetworkPolicy(
-                network_mode=NetworkMode.ALLOWLIST,
-                allowed_hosts=[LLM_PROXY_HOST],
-            )
+            NetworkPolicy(network_mode=NetworkMode.PUBLIC)
         )
         evidence = ""
         if not violations:

@@ -60,8 +60,8 @@ def test_selected_tasks_are_complete_and_do_not_expose_gold_in_instructions() ->
         assert (task_dir / "tests" / "test.sh").stat().st_mode & 0o111
 
 
-def test_task_network_is_solver_proxy_only_and_verifier_runs_afterward() -> None:
+def test_task_network_is_public_but_lookup_is_disqualifying() -> None:
     for task_toml in (ROOT / "tasks").glob("*/task.toml"):
         config = task_toml.read_text()
-        assert 'allowed_hosts = ["llm-proxy.eval.all-hands.dev"]' in config
+        assert '[agent]\ntimeout_sec = 7200\nnetwork_mode = "public"' in config
         assert '[verifier]\ntimeout_sec = 7200\nnetwork_mode = "public"' in config
