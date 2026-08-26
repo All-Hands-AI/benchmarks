@@ -23,16 +23,17 @@ def test_solver_wrapper_enforces_repository_blind_searches() -> None:
     assert "forbidden code-host result" in wrapper
 
 
-def test_search_audit_rejects_code_hosts_and_mirrors() -> None:
+def test_search_audit_allows_docs_but_rejects_repository_lookup() -> None:
     payload = {
         "hits": [
-            {"url": "https://docs.python.org/3/", "title": "Python docs"},
+            {"url": "https://widget.example/docs", "title": "Widget API docs"},
             {"url": "https://github.com/acme/widget/issues/42"},
             {"url": "https://mirror.example/result", "title": "acme/widget fix"},
         ]
     }
     violations = audit_search(payload, "acme/widget", "acme__widget-42")
     assert len(violations) == 3
+    assert not any("widget.example/docs" in violation for violation in violations)
 
 
 def test_truncated_harbor_session_resolves_full_task_id() -> None:

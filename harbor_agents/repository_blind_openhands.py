@@ -57,8 +57,7 @@ def resolve_task_id(session_id: str) -> str:
 def audit_search(
     payload: dict[str, object], repository: str, instance_id: str
 ) -> list[str]:
-    owner, name = (part.lower() for part in repository.split("/", 1))
-    identifiers = (repository.lower(), instance_id.lower(), owner, name)
+    identifiers = (repository.lower(), instance_id.lower())
     violations: list[str] = []
     for hit in payload.get("hits", []):
         if not isinstance(hit, dict):
@@ -137,8 +136,7 @@ AUDIT = Path("/logs/agent/pplx_searches.jsonl")
 REPOSITORY = {repository!r}
 INSTANCE_ID = {instance_id!r}
 FORBIDDEN_HOSTS = {FORBIDDEN_HOSTS!r}
-owner, name = REPOSITORY.lower().split("/", 1)
-identifiers = (REPOSITORY.lower(), INSTANCE_ID.lower(), owner, name)
+identifiers = (REPOSITORY.lower(), INSTANCE_ID.lower())
 args = sys.argv[1:]
 record = {{"argv": args, "query": "", "violations": [], "return_code": None}}
 if len(args) < 3 or args[:2] != ["search", "web"]:
