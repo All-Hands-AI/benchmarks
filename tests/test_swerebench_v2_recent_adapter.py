@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from benchmarks.harbor_agents.repository_blind_openhands import (
+from harbor_agents.repository_blind_openhands import (
     TASK_REPOSITORIES,
     audit_search,
     repository_blind_query,
