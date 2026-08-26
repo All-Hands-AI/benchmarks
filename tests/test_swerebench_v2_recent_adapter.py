@@ -5,8 +5,8 @@ from pathlib import Path
 
 from harbor_agents.repository_blind_openhands import (
     TASK_REPOSITORIES,
+    PplxOpenHandsSDK,
     audit_search,
-    repository_blind_query,
     resolve_task_id,
 )
 
@@ -14,16 +14,13 @@ from harbor_agents.repository_blind_openhands import (
 ROOT = Path(__file__).resolve().parents[1] / "adapters" / "swerebench_v2_recent"
 
 
-def test_repository_blind_query_redacts_project_identifiers() -> None:
-    query = repository_blind_query(
-        "Fix Widget #42 from https://github.com/acme/widget commit abcdef123",
-        "acme/widget",
-        "acme__widget-42",
-    )
-    assert "widget" not in query.lower()
-    assert "github" not in query.lower()
-    assert "#42" not in query
-    assert "abcdef123" not in query
+def test_solver_wrapper_enforces_repository_blind_searches() -> None:
+    wrapper = PplxOpenHandsSDK._wrapper_source("acme/widget", "acme__widget-42")
+    assert 'REAL = "/opt/openhands-sdk-venv/bin/pplx"' in wrapper
+    assert 'AUDIT = Path("/logs/agent/pplx_searches.jsonl")' in wrapper
+    assert "project identifier in query" in wrapper
+    assert "--excluded-domains" in wrapper
+    assert "forbidden code-host result" in wrapper
 
 
 def test_search_audit_rejects_code_hosts_and_mirrors() -> None:
@@ -65,3 +62,12 @@ def test_task_network_is_public_but_lookup_is_disqualifying() -> None:
         config = task_toml.read_text()
         assert '[agent]\ntimeout_sec = 7200\nnetwork_mode = "public"' in config
         assert '[verifier]\ntimeout_sec = 7200\nnetwork_mode = "public"' in config
+
+
+def test_hidden_verifier_requires_solver_pplx_and_blocks_bypass() -> None:
+    for verifier in (ROOT / "tasks").glob("*/tests/verify.py"):
+        source = verifier.read_text()
+        assert "pplx_required" in source
+        assert "no successful audited PPLX search" in source
+        assert "attempted to bypass audited PPLX wrapper" in source
+        assert "pplx_success_count" in source

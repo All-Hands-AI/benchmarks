@@ -10,9 +10,10 @@ This research adapter packages eight medium-difficulty SWE-rebench V2 tasks date
 The control and treatment use custom agents in `harbor_agents.repository_blind_openhands`.
 
 - Control receives no web evidence.
-- Treatment performs one PPLX search, excludes code-host domains, and audits the results before the solver starts.
+- Treatment must invoke `/usr/local/bin/pplx search web ...` from its own coding trajectory at least once. It may invoke the tool repeatedly.
+- The wrapper blocks project identifiers, URLs, issue numbers, commit hashes, direct code-host results, and unsupported PPLX operations. Every query and response is logged.
 - Both prompts prohibit project lookup.
-- Solver network remains public because some model/client stacks need normal DNS and auxiliary endpoints. Hidden verifiers audit terminal commands and treatment search evidence; any attempted lookup or project-specific result forces reward zero.
+- Solver network remains public because some model/client stacks need normal DNS and auxiliary endpoints. Hidden verifiers audit terminal commands and PPLX logs; any lookup attempt, contaminated result, wrapper bypass, credential inspection, or absence of a successful PPLX call forces reward zero.
 - Hidden test patches and expected test names are uploaded only after the agent exits. Scoring uses the pinned official log parsers.
 
-The treatment's PPLX credential is forwarded only to the pre-agent search process and is not available to solver commands.
+The treatment credential is available to the custom agent process so its audited wrapper can call PPLX. Arbitrary direct PPLX calls or attempts to inspect the credential are disqualifying.

@@ -3,11 +3,9 @@
 
 from __future__ import annotations
 
-import json
-import re
-import shlex
+import base64
 from pathlib import Path
-from typing import override
+from typing import Any, override
 from urllib.parse import urlparse
 
 from harbor.agents.installed.openhands_sdk import OpenHandsSDK
@@ -54,19 +52,6 @@ def resolve_task_id(session_id: str) -> str:
         ),
         "",
     )
-
-
-def repository_blind_query(instruction: str, repository: str, instance_id: str) -> str:
-    owner, name = repository.split("/", 1)
-    text = instruction.rsplit("ORIGINAL TASK", 1)[-1]
-    text = text.split("Relevant interfaces:", 1)[0]
-    text = re.sub(r"https?://\S+", " ", text)
-    text = re.sub(r"@[A-Za-z0-9_-]+", " ", text)
-    text = re.sub(r"#\d+", " ", text)
-    text = re.sub(r"\b[0-9a-fA-F]{7,40}\b", " ", text)
-    for identifier in (repository, owner, name, instance_id):
-        text = re.sub(re.escape(identifier), " ", text, flags=re.IGNORECASE)
-    return re.sub(r"\s+", " ", text).strip()[:400]
 
 
 def audit_search(
@@ -134,7 +119,95 @@ class VerifierReadyOpenHandsSDK(OpenHandsSDK):
 
 
 class PplxOpenHandsSDK(VerifierReadyOpenHandsSDK):
-    """Treatment agent with one audited runner search before offline solving."""
+    """Treatment agent required to use an audited PPLX wrapper while solving."""
+
+    @staticmethod
+    def _wrapper_source(repository: str, instance_id: str) -> str:
+        return f"""#!/opt/openhands-sdk-venv/bin/python
+import json
+import os
+import re
+import subprocess
+import sys
+from pathlib import Path
+from urllib.parse import urlparse
+
+REAL = "/opt/openhands-sdk-venv/bin/pplx"
+AUDIT = Path("/logs/agent/pplx_searches.jsonl")
+REPOSITORY = {repository!r}
+INSTANCE_ID = {instance_id!r}
+FORBIDDEN_HOSTS = {FORBIDDEN_HOSTS!r}
+owner, name = REPOSITORY.lower().split("/", 1)
+identifiers = (REPOSITORY.lower(), INSTANCE_ID.lower(), owner, name)
+args = sys.argv[1:]
+record = {{"argv": args, "query": "", "violations": [], "return_code": None}}
+if len(args) < 3 or args[:2] != ["search", "web"]:
+    record["violations"].append("only `pplx search web <query>` is allowed")
+else:
+    query_parts = [part for part in args[2:] if not part.startswith("-")]
+    query = " ".join(query_parts).strip()
+    record["query"] = query
+    lowered = query.lower()
+    if any(identifier and identifier in lowered for identifier in identifiers):
+        record["violations"].append("project identifier in query")
+    if re.search(r"https?://|#\\d+|\\b[0-9a-f]{{7,40}}\\b", lowered):
+        record["violations"].append("URL, issue number, or commit hash in query")
+    command = [
+        REAL, "search", "web", "--limit", "8", "--max-tokens", "5000",
+        "--excluded-domains", ",".join(FORBIDDEN_HOSTS), "--", query,
+    ]
+    if not record["violations"]:
+        result = subprocess.run(command, capture_output=True, text=True, timeout=120)
+        record["return_code"] = result.returncode
+        record["stderr"] = result.stderr[-2000:]
+        if result.returncode == 0:
+            try:
+                payload = json.loads(result.stdout)
+                record["payload"] = payload
+                for hit in payload.get("hits", []):
+                    url = str(hit.get("url", ""))
+                    host = (urlparse(url).hostname or "").lower()
+                    evidence = " ".join(str(hit.get(k, "")) for k in ("url", "title", "snippet")).lower()
+                    if host in FORBIDDEN_HOSTS or host.endswith((".github.com", ".githubusercontent.com")):
+                        record["violations"].append(f"forbidden code-host result: {{url}}")
+                    if any(identifier and identifier in evidence for identifier in identifiers):
+                        record["violations"].append(f"project identifier in result: {{url}}")
+            except Exception as exc:
+                record["violations"].append(f"invalid PPLX JSON: {{exc}}")
+        else:
+            record["violations"].append("PPLX command failed")
+AUDIT.parent.mkdir(parents=True, exist_ok=True)
+with AUDIT.open("a") as stream:
+    stream.write(json.dumps(record) + "\\n")
+if record["violations"]:
+    print(json.dumps({{"error": record["violations"]}}), file=sys.stderr)
+    raise SystemExit(42)
+print(json.dumps(record["payload"]))
+"""
+
+    @override
+    async def install(self, environment: BaseEnvironment) -> None:
+        await super().install(environment)
+        session_id = self.session_id or ""
+        instance_id = resolve_task_id(session_id)
+        if not instance_id:
+            raise RuntimeError(f"Unknown SWE-rebench task session: {session_id}")
+        wrapper = self._wrapper_source(TASK_REPOSITORIES[instance_id], instance_id)
+        encoded = base64.b64encode(wrapper.encode()).decode()
+        result = await self.exec_as_root(
+            environment,
+            command=(
+                "/opt/openhands-sdk-venv/bin/python -c "
+                + repr(
+                    "import base64,pathlib; "
+                    f"pathlib.Path('/usr/local/bin/pplx').write_bytes(base64.b64decode({encoded!r})); "
+                    "pathlib.Path('/usr/local/bin/pplx').chmod(0o755); "
+                    "pathlib.Path('/logs/agent/pplx_required').touch()"
+                )
+            ),
+        )
+        if result.return_code != 0:
+            raise RuntimeError("Failed to install audited PPLX wrapper")
 
     @override
     async def run(
@@ -143,65 +216,32 @@ class PplxOpenHandsSDK(VerifierReadyOpenHandsSDK):
         environment: BaseEnvironment,
         context: AgentContext,
     ) -> None:
-        session_id = self.session_id or ""
-        instance_id = resolve_task_id(session_id)
-        if not instance_id:
-            raise RuntimeError(f"Unknown SWE-rebench task session: {session_id}")
-        repository = TASK_REPOSITORIES[instance_id]
-        query = repository_blind_query(instruction, repository, instance_id)
-        excluded = ",".join(FORBIDDEN_HOSTS)
-        command = (
-            "/opt/openhands-sdk-venv/bin/pplx search web "
-            "--limit 8 --max-tokens 5000 "
-            f"--excluded-domains {shlex.quote(excluded)} -- {shlex.quote(query)}"
-        )
-        api_key = self._get_env("PERPLEXITY_API_KEY")
-        if api_key is None:
-            raise ValueError("PERPLEXITY_API_KEY is required for treatment")
-        search = await super().exec_as_agent(
-            environment,
-            command=command,
-            env={"PERPLEXITY_API_KEY": api_key},
-            timeout_sec=120,
-        )
-        if search.return_code != 0:
-            raise RuntimeError(
-                "Required repository-blind Perplexity search failed: "
-                f"{(search.stderr or search.stdout or '').strip()[:2000]}"
-            )
-        try:
-            payload = json.loads(search.stdout or "")
-        except json.JSONDecodeError as exc:
-            raise RuntimeError("Perplexity search returned invalid JSON") from exc
-        if not isinstance(payload, dict) or not isinstance(payload.get("hits"), list):
-            raise TypeError("Perplexity response must contain a hits list")
-
-        violations = audit_search(payload, repository, instance_id)
-        audit = {
-            "query": query,
-            "excluded_domains": list(FORBIDDEN_HOSTS),
-            "violations": violations,
-            "payload": payload,
-        }
-        audit_path = self.logs_dir / "pplx_search_audit.json"
-        audit_path.write_text(json.dumps(audit, indent=2))
-        await environment.upload_file(
-            source_path=audit_path,
-            target_path="/logs/agent/pplx_search_audit.json",
-        )
-
         await environment.set_network_policy(
             NetworkPolicy(network_mode=NetworkMode.PUBLIC)
         )
-        evidence = ""
-        if not violations:
-            evidence = (
-                "\nAUDITED GENERAL WEB EVIDENCE\n"
-                + json.dumps(payload, ensure_ascii=False)[:16000]
-            )
+        required = """MANDATORY PPLX USE:
+During this task you must run `/usr/local/bin/pplx search web <general technical query>` at least once and use the returned evidence. You may run it multiple times. The wrapper rejects project identifiers, URLs, issue numbers, commit hashes, and code-host results. Do not bypass the wrapper or call the binary under `/opt` directly. A task with no successful audited PPLX call receives reward zero.
+"""
         await OpenHandsSDK.run(
             self,
-            f"{POLICY}\nORIGINAL TASK\n{instruction}{evidence}",
+            f"{POLICY}\n{required}\nORIGINAL TASK\n{instruction}",
             environment,
             context,
+        )
+
+    @override
+    async def exec_as_agent(
+        self,
+        environment: BaseEnvironment,
+        command: str,
+        env: dict[str, str] | None = None,
+        cwd: str | None = None,
+        timeout_sec: int | None = None,
+    ) -> Any:
+        api_key = self._get_env("PERPLEXITY_API_KEY")
+        if api_key is not None:
+            env = dict(env or {})
+            env["PERPLEXITY_API_KEY"] = api_key
+        return await super().exec_as_agent(
+            environment, command, env=env, cwd=cwd, timeout_sec=timeout_sec
         )

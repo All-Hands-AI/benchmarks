@@ -14,6 +14,7 @@ FORBIDDEN = (
     re.compile(r"\b(?:curl|wget|gh)\b", re.I),
     re.compile(r"\bgit\s+(?:clone|fetch|pull|ls-remote)\b", re.I),
     re.compile(r"(?:github\.com|raw\.githubusercontent\.com|api\.github\.com|gitlab\.com|bitbucket\.org)", re.I),
+    re.compile(r"\b(?:env|printenv)\b|/proc/(?:self|[0-9]+)/environ", re.I),
 )
 def normalize(name):
     for pattern in TIMING:
@@ -33,15 +34,27 @@ def command_violations(trajectory, repository, instance_id):
                 continue
             if any(pattern.search(command) for pattern in FORBIDDEN):
                 violations.append(command[:500])
+            if '/opt/openhands-sdk-venv/bin/pplx' in command or 'PERPLEXITY_API_KEY' in command:
+                violations.append('attempted to bypass audited PPLX wrapper')
             lowered = command.lower()
             if any(identifier in lowered for identifier in identifiers) and re.search(r"\b(?:curl|wget|gh|git)\b", lowered):
                 violations.append(command[:500])
     return list(dict.fromkeys(violations))
 spec = json.loads(Path('/tests/spec.json').read_text())
 violations = command_violations(Path('/logs/agent/trajectory.json'), spec['repo'], spec['instance_id'])
-search_audit = Path('/logs/agent/pplx_search_audit.json')
-if search_audit.exists():
-    violations.extend(json.loads(search_audit.read_text()).get('violations', []))
+search_log = Path('/logs/agent/pplx_searches.jsonl')
+searches = []
+if search_log.exists():
+    for line in search_log.read_text().splitlines():
+        if line.strip():
+            searches.append(json.loads(line))
+    for search in searches:
+        violations.extend(search.get('violations', []))
+if Path('/logs/agent/pplx_required').exists() and not any(
+    search.get('return_code') == 0 and not search.get('violations')
+    for search in searches
+):
+    violations.append('no successful audited PPLX search')
 patch_path = Path('/tmp/swerebench_test.patch')
 patch_path.write_text(spec['test_patch'])
 apply_result = subprocess.run(
@@ -62,7 +75,12 @@ expected = {normalize(name) for name in spec['PASS_TO_PASS'] + spec['FAIL_TO_PAS
 reward = 1.0 if passed == expected and not violations else 0.0
 report = {
     'reward': reward,
-    'lookup_violations': violations,
+    'lookup_violations': list(dict.fromkeys(violations)),
+    'pplx_search_count': len(searches),
+    'pplx_success_count': sum(
+        search.get('return_code') == 0 and not search.get('violations')
+        for search in searches
+    ),
     'passed_match': passed == expected,
     'missing_expected': sorted(expected - passed),
     'unexpected_passed': sorted(passed - expected),
