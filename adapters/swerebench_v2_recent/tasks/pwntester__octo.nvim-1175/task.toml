@@ -1,0 +1,22 @@
+schema_version = "1.4"
+
+[metadata]
+dataset = "nebius/SWE-rebench-V2"
+dataset_revision = "475dd5e8703bb5fb22dd3c60b5d038b019eba1e0"
+created_at = "2025-10-08 23:31:07"
+language = "lua"
+
+[agent]
+timeout_sec = 7200
+network_mode = "allowlist"
+allowed_hosts = ["llm-proxy.eval.all-hands.dev"]
+
+[verifier]
+timeout_sec = 7200
+network_mode = "public"
+
+[environment]
+docker_image = "docker.io/swerebenchv2/pwntester-octo.nvim:1175-2a758bd"
+workdir = "/octo.nvim"
+network_mode = "allowlist"
+allowed_hosts = ["llm-proxy.eval.all-hands.dev"]
