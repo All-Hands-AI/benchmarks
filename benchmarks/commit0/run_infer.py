@@ -8,11 +8,7 @@ from commit0.harness.constants import SPLIT
 from datasets import load_dataset
 from jinja2 import Environment, FileSystemLoader
 
-from benchmarks.commit0.build_images import (
-    get_agent_server_image_tag,
-    get_agent_server_image_tag_prefix,
-    get_base_docker_image,
-)
+from benchmarks.commit0.build_images import extract_custom_tag, get_base_docker_image
 from benchmarks.commit0.config import BUILD_TARGET, INFER_DEFAULTS
 from benchmarks.utils.acp import (
     add_acp_agent_metadata,
@@ -43,6 +39,7 @@ from benchmarks.utils.models import (
     EvalOutput,
 )
 from benchmarks.utils.tool_presets import get_tools_for_preset
+from benchmarks.utils.version import get_phased_image_tag_prefix
 from openhands.sdk import Agent, Conversation, Tool, get_logger
 from openhands.sdk.agent import ACPAgent
 from openhands.sdk.context.condenser import LLMSummarizingCondenser
@@ -266,12 +263,14 @@ class Commit0Evaluation(Evaluation):
         build_target = BUILD_TARGET
         logger.info(f"Using base docker image: {base_docker_image}")
 
+        custom_tag = extract_custom_tag(base_docker_image)
+        suffix = f"-{build_target}" if build_target != "binary" else ""
+        tag_prefix = get_phased_image_tag_prefix()
+        agent_server_image = (
+            f"{EVAL_AGENT_SERVER_IMAGE}:{tag_prefix}-{custom_tag}{suffix}"
+        )
+
         if self.metadata.workspace_type == "docker":
-            agent_server_image = get_agent_server_image_tag(
-                base_docker_image,
-                build_target,
-                EVAL_AGENT_SERVER_IMAGE,
-            )
             workspace = create_docker_workspace(
                 agent_server_image=agent_server_image,
                 base_image=base_docker_image,
@@ -285,12 +284,6 @@ class Commit0Evaluation(Evaluation):
                     "RUNTIME_API_KEY environment variable is not set for remote workspace"
                 )
 
-            agent_server_image = get_agent_server_image_tag(
-                base_docker_image,
-                build_target,
-                EVAL_AGENT_SERVER_IMAGE,
-            )
-
             if not remote_image_exists(agent_server_image):
                 raise RuntimeError(
                     f"Agent server image {agent_server_image} does not exist in container registry. "
@@ -299,7 +292,7 @@ class Commit0Evaluation(Evaluation):
 
             logger.info(
                 f"Using remote workspace with image {agent_server_image} "
-                f"(tag prefix: {get_agent_server_image_tag_prefix(build_target)}, "
+                f"(tag prefix: {tag_prefix}, "
                 f"resource_factor: {resource_factor})"
             )
             startup_timeout = float(os.getenv("REMOTE_RUNTIME_STARTUP_TIMEOUT", "600"))
