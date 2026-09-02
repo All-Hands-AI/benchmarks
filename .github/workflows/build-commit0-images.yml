@@ -51,6 +51,11 @@ on:
         required: false
         default: '4'
         type: string
+      max-retries:
+        description: 'Retries per image build'
+        required: false
+        default: '5'
+        type: string
       n-limit:
         description: 'Limit number of repos to build (for testing). Leave blank for no limit.'
         required: false
@@ -87,6 +92,7 @@ env:
   SPLIT: test
   REPO_SPLIT: lite
   MAX_WORKERS: '4'
+  MAX_RETRIES: '2'
   N_LIMIT: ''
   INSTANCE_IDS: ''
   SELECT_FILE: ''
@@ -142,6 +148,7 @@ jobs:
           if [ -n "${{ inputs.split }}" ]; then echo "SPLIT=${{ inputs.split }}" >> "$GITHUB_ENV"; fi
           if [ -n "${{ inputs.repo-split }}" ]; then echo "REPO_SPLIT=${{ inputs.repo-split }}" >> "$GITHUB_ENV"; fi
           if [ -n "${{ inputs.max-workers }}" ]; then echo "MAX_WORKERS=${{ inputs.max-workers }}" >> "$GITHUB_ENV"; fi
+          if [ -n "${{ inputs.max-retries }}" ]; then echo "MAX_RETRIES=${{ inputs.max-retries }}" >> "$GITHUB_ENV"; fi
           if [ -n "${{ inputs.n-limit }}" ]; then echo "N_LIMIT=${{ inputs.n-limit }}" >> "$GITHUB_ENV"; else echo "N_LIMIT=" >> "$GITHUB_ENV"; fi
           if [ -n "${{ inputs.instance-ids }}" ]; then echo "INSTANCE_IDS=${{ inputs.instance-ids }}" >> "$GITHUB_ENV"; fi
           if [ -n "${{ inputs.sdk-commit }}" ]; then echo "SDK_COMMIT=${{ inputs.sdk-commit }}" >> "$GITHUB_ENV"; fi
@@ -209,7 +216,8 @@ jobs:
             --repo-split '${REPO_SPLIT}' \
             --image ghcr.io/openhands/eval-agent-server \
             --push \
-            --max-workers '${MAX_WORKERS}'"
+            --max-workers '${MAX_WORKERS}' \
+            --max-retries '${MAX_RETRIES}'"
 
           if [ -n "${N_LIMIT}" ]; then
             CMD="$CMD --n-limit '${N_LIMIT}'"

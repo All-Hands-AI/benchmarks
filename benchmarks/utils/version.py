@@ -53,15 +53,14 @@ IMAGE_TAG_PREFIX = (
 
 
 def get_phased_image_tag_prefix() -> str:
-    """Return the image tag prefix for phased-build benchmarks (swebench, swebenchmultimodal, swtbench).
+    """Return the image tag prefix for phased-build benchmarks (swebench, swebenchmultimodal, swtbench, commit0).
 
     Phased-build assembly images include the Dockerfile content hash in
     their tags so that Dockerfile changes invalidate cached assemblies.
     The tag format is: ``{sdk_short_sha}-{content_hash}-{custom_tag}-{target}``.
 
-    Benchmarks on the legacy build path (gaia, commit0, etc.) should
-    continue to use :data:`IMAGE_TAG_PREFIX` which does NOT include the
-    content hash.
+    Benchmarks on the legacy build path (gaia, etc.) should continue to
+    use :data:`IMAGE_TAG_PREFIX` which does NOT include the content hash.
     """
     from benchmarks.swebench.build_base_images import dockerfile_content_hash
 
